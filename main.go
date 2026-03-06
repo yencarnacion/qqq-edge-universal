@@ -27,10 +27,10 @@ import (
 	mmodels "github.com/massive-com/client-go/v2/rest/models"
 	"gopkg.in/yaml.v3"
 
-	"alertcat/internal/alerts"
-	poly "alertcat/internal/polygon"
-	rvolpkg "alertcat/internal/rvol"
-	"alertcat/internal/scalps"
+	"qqq-edge/internal/alerts"
+	poly "qqq-edge/internal/polygon"
+	rvolpkg "qqq-edge/internal/rvol"
+	"qqq-edge/internal/scalps"
 )
 
 /* ====================
@@ -97,6 +97,17 @@ func watchlistSourceLabel(path string) string {
 		return base
 	}
 	return label
+}
+
+func isQQQModeWatchlists(paths []string) bool {
+	if len(paths) != 1 {
+		return false
+	}
+	base := strings.ToLower(strings.TrimSpace(filepath.Base(paths[0])))
+	if base == "" {
+		return false
+	}
+	return strings.TrimSuffix(base, filepath.Ext(base)) == "qqq"
 }
 
 func parseWatchlistPaths(raw string) []string {
@@ -1681,6 +1692,7 @@ func main() {
 			log.Fatal("watchlists flag is set but no valid files were provided")
 		}
 	}
+	qqqMode := isQQQModeWatchlists(watchlistFiles)
 	symbols, nameBySymbol, sourcesBySymbol, err := loadWatchlists(watchlistFiles)
 	if err != nil {
 		log.Fatal(err)
@@ -1717,6 +1729,13 @@ func main() {
 
 	// RVOL manager
 	rvm := newRvolManager(cfg, et, polygonKey, h)
+	qqqLeaders, err := loadQQQHoldings("qqq-etf-holdings.csv", qqqTapeLeaderLimit)
+	if err != nil {
+		log.Printf("[qqq tape] holdings load warning: %v", err)
+	} else {
+		log.Printf("[qqq tape] loaded %d weighted leaders from qqq-etf-holdings.csv", len(qqqLeaders))
+	}
+	qqqTape := newQQQTapeEngine(h, et, qqqLeaders)
 
 	// web mux
 	mux := http.NewServeMux()
@@ -1823,15 +1842,19 @@ func main() {
 	var localEng *odEngine
 	var lastPrice sync.Map // symbol -> price (float64) used in RVOL alert
 	var subsMu sync.Mutex
-	subs := make(map[string]*poly.Subscription) // symbol -> subscription
+	watchSubs := make(map[string]*poly.Subscription)
+	tapeSubs := make(map[string]*poly.Subscription)
 	var localCfgMu sync.RWMutex
 	localAnchorClock := "09:30"
 	localLevelsEnabled := false
 	levelsMode := "session"
 
-	// consumer helper
-	startConsumer := func(ctx context.Context, sym string) *poly.Subscription {
-		sub := broker.Subscribe(sym)
+	// consumer helpers
+	startWatchConsumer := func(ctx context.Context, sym string) *poly.Subscription {
+		sub := broker.Subscribe(sym, poly.StreamKinds{Trades: true, Minutes: true})
+		if sub == nil {
+			return nil
+		}
 		go func(sym string, sub *poly.Subscription) {
 			// pull from both channels
 			for {
@@ -1903,6 +1926,27 @@ func main() {
 		}(sym, sub)
 		return sub
 	}
+	startTapeConsumer := func(ctx context.Context, sym string) *poly.Subscription {
+		sub := broker.Subscribe(sym, poly.StreamKinds{Trades: true, Quotes: true})
+		if sub == nil {
+			return nil
+		}
+		go func(sub *poly.Subscription) {
+			for {
+				select {
+				case t := <-sub.Trades:
+					qqqTape.OnTrade(t)
+				case q := <-sub.Quotes:
+					qqqTape.OnQuote(q)
+				case <-sub.Done():
+					return
+				case <-ctx.Done():
+					return
+				}
+			}
+		}(sub)
+		return sub
+	}
 
 	mux.HandleFunc("/api/stream", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -1942,13 +1986,17 @@ func main() {
 			// Unsubscribe all active subs and clear
 			if broker != nil {
 				subsMu.Lock()
-				for sym, sub := range subs {
+				for _, sub := range watchSubs {
 					broker.Unsubscribe(sub)
-					broker.RemoveSymbol(sym)
 				}
-				subs = make(map[string]*poly.Subscription)
+				for _, sub := range tapeSubs {
+					broker.Unsubscribe(sub)
+				}
+				watchSubs = make(map[string]*poly.Subscription)
+				tapeSubs = make(map[string]*poly.Subscription)
 				subsMu.Unlock()
 			}
+			qqqTape.Reset()
 			// clear profile cache when stopping (safe)
 			profMu.Lock()
 			profBySym = make(map[string]ProfileInfo)
@@ -1992,6 +2040,7 @@ func main() {
 			// reset stores
 			bars.reset()
 			h.resetHistories()
+			qqqTape.Reset()
 			// reset FMP profile cache for the new trading day/session
 			profMu.Lock()
 			profBySym = make(map[string]ProfileInfo)
@@ -2043,11 +2092,15 @@ func main() {
 			// broker ctx
 			streamCtx, streamCancel = context.WithCancel(context.Background())
 			broker = poly.NewBroker(polygonKey)
-			// subscribe per symbol (with consumers)
+			// subscribe per symbol (watchlist + QQQ tape basket)
 			subsMu.Lock()
-			subs = make(map[string]*poly.Subscription)
+			watchSubs = make(map[string]*poly.Subscription)
 			for _, s := range streamSymbols {
-				subs[s] = startConsumer(streamCtx, s)
+				watchSubs[s] = startWatchConsumer(streamCtx, s)
+			}
+			tapeSubs = make(map[string]*poly.Subscription)
+			for _, s := range qqqTape.Symbols() {
+				tapeSubs[s] = startTapeConsumer(streamCtx, s)
 			}
 			subsMu.Unlock()
 			// run broker
@@ -2189,9 +2242,12 @@ func main() {
 			StartET              string      `json:"startET"`
 			EndET                string      `json:"endET"`
 			Port                 int         `json:"port"`
+			QQQMode              bool        `json:"qqq_mode"`
+			WatchlistCount       int         `json:"watchlist_count"`
 			MiniChartLookbackMin int         `json:"mini_chart_lookback_min"`
 			RVOL                 interface{} `json:"rvol"`
 			Local                interface{} `json:"local"`
+			QQQTape              interface{} `json:"qqq_tape"`
 			UI                   interface{} `json:"ui"`
 		}
 		localCfgMu.RLock()
@@ -2199,10 +2255,13 @@ func main() {
 		localEnabled := localLevelsEnabled
 		lvMode := levelsMode
 		localCfgMu.RUnlock()
+		wsyms, _, _ := getWatchSnapshot()
 		out := resp{
 			Running: streamCancel != nil,
 			Session: "", Date: "", StartET: "", EndET: "",
 			Port:                 cfg.ServerPort,
+			QQQMode:              qqqMode,
+			WatchlistCount:       len(wsyms),
 			MiniChartLookbackMin: 120,
 			RVOL: map[string]any{
 				"threshold":     rvm.threshold,
@@ -2215,6 +2274,7 @@ func main() {
 				"enabled":     localEnabled,
 				"levels_mode": lvMode,
 			},
+			QQQTape: qqqTape.Snapshot(),
 			UI: map[string]any{
 				"tiny_cap_max":          cfg.UI.LiveColors.TinyCapMax,
 				"industry_regex":        cfg.UI.LiveColors.IndustryRegex,
@@ -2420,8 +2480,8 @@ func main() {
 			if len(added) > 0 {
 				subsMu.Lock()
 				for _, s := range added {
-					if _, exists := subs[s]; !exists {
-						subs[s] = startConsumer(streamCtx, s)
+					if _, exists := watchSubs[s]; !exists {
+						watchSubs[s] = startWatchConsumer(streamCtx, s)
 					}
 				}
 				subsMu.Unlock()
@@ -2430,13 +2490,9 @@ func main() {
 			if len(removed) > 0 {
 				subsMu.Lock()
 				for _, s := range removed {
-					if sub, ok := subs[s]; ok {
+					if sub, ok := watchSubs[s]; ok {
 						broker.Unsubscribe(sub)
-						broker.RemoveSymbol(s)
-						delete(subs, s)
-					} else {
-						// Ensure broker won't resubscribe after reconnects
-						broker.RemoveSymbol(s)
+						delete(watchSubs, s)
 					}
 				}
 				subsMu.Unlock()

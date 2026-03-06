@@ -96,6 +96,44 @@ body.essentials .topbar{
   margin: 0 0 12px;
   padding: 10px 12px;
 }
+.tapePanel{
+  margin: 0 0 12px;
+}
+.tapeState{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:96px;
+  padding:5px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.2px;
+  border:1px solid #2d3f57;
+  background:#1a2433;
+  color:#d7e8ff;
+}
+.tapeState.idle{
+  background:#1a2433;
+  border-color:#2d3f57;
+  color:#d7e8ff;
+}
+.tapeState.watch{
+  background:#332815;
+  border-color:#6c5330;
+  color:#ffe7b0;
+}
+.tapeState.tradable{
+  background:#1f2a1d;
+  border-color:#325331;
+  color:#dcf4d7;
+}
+.tapeMetaPrimary strong{
+  font-size:13px;
+}
+.tapeMetaPrimary span{
+  min-width: 132px;
+}
 .tickTop{
   display:flex;
   align-items:flex-start;
@@ -146,6 +184,76 @@ body.essentials .topbar{
   border:1px solid #202534;
   border-radius:8px;
   background:linear-gradient(180deg, #101622 0%, #0f131d 100%);
+}
+.tapeMeta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 14px;
+  align-items:center;
+  margin:8px 0;
+  font-size:12px;
+}
+.tapeMeta strong{
+  color:#e6eefc;
+  font-variant-numeric: tabular-nums;
+}
+.tapeBias{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:108px;
+  padding:5px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.2px;
+  border:1px solid #2d3f57;
+  background:#1a2433;
+  color:#d7e8ff;
+}
+.tapeBias.neutral{
+  background:#1a2433;
+  border-color:#2d3f57;
+  color:#d7e8ff;
+}
+.tapeBias.buy{
+  background:#1f2a1d;
+  border-color:#325331;
+  color:#dcf4d7;
+}
+.tapeBias.sell{
+  background:#341d18;
+  border-color:#81402b;
+  color:#ffe5d8;
+}
+.tapeBias.strong{
+  box-shadow:0 0 0 1px rgba(255,255,255,0.08) inset;
+}
+.tapeTopLeaders{
+  margin-top:8px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  min-height:24px;
+}
+.tapeChip{
+  display:inline-flex;
+  align-items:center;
+  padding:3px 8px;
+  border-radius:999px;
+  border:1px solid #1f2430;
+  background:#141824;
+  color:#dbe7ff;
+  font-size:11px;
+  font-weight:700;
+}
+.tapeChip.pos{
+  border-color:#2f8f5b;
+  color:#dcf8e5;
+}
+.tapeChip.neg{
+  border-color:#b25a3b;
+  color:#ffe5d8;
 }
 .tickScaleHint{
   margin-top:8px;
@@ -231,6 +339,27 @@ body.essentials .tabRow{
 }
 body.essentials #alertsWrap{
   display:none !important;
+}
+body.qqqMode .container{
+  max-width: 1120px;
+  margin: 16px auto;
+  padding: 0 12px;
+}
+body.qqqMode .split{
+  grid-template-columns: 1fr;
+  min-height: auto;
+}
+body.qqqMode .leftCol,
+body.qqqMode #tickPanel,
+body.qqqMode .rightTabs,
+body.qqqMode .qqqHide{
+  display:none !important;
+}
+body.qqqMode #qqqTapePanel{
+  margin: 0;
+}
+body.qqqMode #qqqTapePanel .tickChart{
+  height: 220px;
 }
 .rightTabs{ display:flex; flex-direction:column; gap:10px; }
 .tabHeader{
@@ -531,6 +660,7 @@ body.essentials #alertsWrap{
   .tickTop{ flex-direction:column; }
   .tickReadout{ width:100%; justify-content:space-between; }
   .tickChart{ height:145px; }
+  .tapeMeta{ gap:6px 10px; }
 }
 /* ===========================
    COMPACT MODE (toggleable)

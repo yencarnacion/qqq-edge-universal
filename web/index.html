@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>alertcat</title>
+  <title>qqq-edge</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <link rel="stylesheet" href="/assets/styles.css"/>
   <!-- Lightweight Charts (pinned to v4 to avoid breaking API changes) -->
@@ -10,7 +10,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">alertcat</div>
+    <div class="brand">qqq-edge</div>
     <div class="topRight">
       <label class="essentialsToggle topEssentials" title="Show only Synthetic TICK + Live Alerts">
         <input id="chkEssentialsTop" type="checkbox"/>
@@ -40,14 +40,14 @@
           <button type="button" class="quickBtn sessionQuick" data-session="pm" data-local="16:06">16:00</button>
         </div>
       </div>
-      <div class="field">
+      <div class="field qqqHide">
         <span>Levels Mode</span>
         <div class="radio-row">
           <label><input type="radio" name="levelsMode" value="session" checked> Session HOD/LOD</label>
           <label><input type="radio" name="levelsMode" value="local"> Local High/Low</label>
         </div>
       </div>
-      <div class="field">
+      <div class="field qqqHide">
         <span>Alert types</span>
         <div class="radio-row">
           <label><input type="checkbox" id="chkHod" checked> HOD</label>
@@ -59,7 +59,7 @@
           Toggle what you want to see in this tab.
         </div>
       </div>
-      <div class="field field-anchor">
+      <div class="field field-anchor qqqHide">
         <label for="localTimeInput">Local Anchor Time (ET)</label>
         <div class="anchor-input-row">
           <input id="localTimeInput" type="time" step="60" value="09:30" />
@@ -74,14 +74,14 @@
           <button type="button" class="quickBtn localPreset" data-time="now">Now</button>
         </div>
       </div>
-      <div class="field">
+      <div class="field qqqHide">
         <span>Scalp Alerts</span>
         <div class="radio-row">
           <label><input type="checkbox" id="chkScalps" checked> Enable scalps (Rubberband, Backside, Fashionably late)</label>
         </div>
       </div>
       <!-- NEW: Layout / Compact mode -->
-      <div class="field">
+      <div class="field qqqHide">
         <span>Layout</span>
         <div class="radio-row">
           <label title="Smaller cards & denser lists for side-by-side with trading software">
@@ -93,33 +93,43 @@
         </div>
       </div>
       <!-- NEW RVOL controls -->
-      <div class="field">
+      <div class="field qqqHide">
         <label for="rvolThreshold">RVOL Threshold</label>
         <input id="rvolThreshold" type="number" step="0.1" value="2.0" min="1.0"/>
       </div>
-      <div class="field">
+      <div class="field qqqHide">
         <label for="rvolMethod">RVOL Method</label>
         <select id="rvolMethod">
           <option value="A">Method A (Mean)</option>
           <option value="B" selected>Method B (Median)</option>
         </select>
       </div>
-      <div class="field">
+      <div class="field qqqHide">
         <span>Baseline Mode</span>
         <div class="radio-row">
           <label><input type="radio" name="baseline" value="single" checked> Single-bar</label>
           <label><input type="radio" name="baseline" value="cumulative"> Cumulative</label>
         </div>
       </div>
-      <div class="field">
+      <div class="field qqqHide">
         <span>RVOL Active</span>
         <label><input type="checkbox" id="rvolActive"> Enable</label>
       </div>
-      <div class="field">
+      <div class="field qqqHide">
         <label for="bucketSize">Bucket Size</label>
         <input id="bucketSize" type="text" value="1m" disabled/>
       </div>
-      <label class="check">
+      <div class="field">
+        <span>Sound Channels</span>
+        <div class="radio-row">
+          <label><input type="checkbox" id="chkCurrentSounds" checked> Current alerts</label>
+          <label><input type="checkbox" id="chkSyntheticSounds" checked> Synthetic QQQ tape</label>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:4px;">
+          Current alerts = HOD/LOD/local/scalp/RVOL. Synthetic QQQ tape = bullish/bearish edge intensity tones.
+        </div>
+      </div>
+      <label class="check qqqHide">
         <input id="silentMode" type="checkbox"/>
         <span>Silent Mode</span>
       </label>
@@ -149,7 +159,42 @@
 
       <!-- RIGHT: tabbed panel (Live Alerts / RVOL table) -->
       <div class="col rightCol">
-        <section id="tickPanel" class="panel tickPanel" aria-label="Synthetic TICK breadth">
+        <section id="qqqTapePanel" class="panel tickPanel tapePanel" aria-label="QQQ tape">
+          <div class="essentialsInline">
+            <label class="essentialsToggle qqqTapeEssentials" title="Exit essentials mode">
+              <input id="chkEssentialsQqqTape" type="checkbox"/>
+              <span>Essentials Mode</span>
+            </label>
+          </div>
+          <div class="tickTop">
+            <div>
+              <div class="title">QQQ Tape</div>
+              <div class="muted tickFormula">Fair value = tracked leaders at raw ETF weights + residual QQQ return. Exec edge = fair gap + leader / QQQ tape confirmation.</div>
+            </div>
+            <div class="tickReadout">
+              <span id="qqqTapeState" class="tapeState idle">No Trade</span>
+              <span id="qqqTapeExec" class="tickValue neutral">0.00¢</span>
+            </div>
+          </div>
+          <div class="tapeMeta tapeMetaPrimary">
+            <span>QQQ <strong id="qqqTapePrice">—</strong></span>
+            <span>Fair Value <strong id="qqqTapeFairValue">—</strong></span>
+            <span>Fair Gap <strong id="qqqTapeFairGap">0.00 bps</strong></span>
+            <span>Exec Edge <strong id="qqqTapeExecBps">0.00 bps</strong></span>
+          </div>
+          <div class="tapeMeta">
+            <span>Spread <strong id="qqqTapeSpread">0.00 bps</strong></span>
+            <span>Freshness <strong id="qqqTapeFreshness">0 ms</strong></span>
+            <span>Coverage <strong id="qqqTapeCoverage">0.0%</strong></span>
+            <span>Trade <strong id="qqqTapeTrade">0.000</strong></span>
+            <span>Quote <strong id="qqqTapeQuote">0.000</strong></span>
+            <span>Micro <strong id="qqqTapeMicro">0.000</strong></span>
+          </div>
+          <div id="qqqTapeChart" class="tickChart"></div>
+          <div id="qqqTapeTop" class="tapeTopLeaders"></div>
+        </section>
+
+        <section id="tickPanel" class="panel tickPanel" aria-label="Breakout breadth">
           <div class="essentialsInline">
             <label class="essentialsToggle tickEssentials" title="Exit essentials mode">
               <input id="chkEssentialsTick" type="checkbox"/>
@@ -158,18 +203,19 @@
           </div>
           <div class="tickTop">
             <div>
-              <div class="title">Synthetic TICK Breadth</div>
-              <div class="muted tickFormula">TICK = uptick symbols − downtick symbols (from HOD/LOD or Local H/L alerts)</div>
+              <div class="title">Breakout Breadth</div>
+              <div class="muted tickFormula">State breadth = upside breakouts (+1) minus downside breakouts (−1) from HOD/LOD or Local High/Low alerts</div>
             </div>
             <div class="tickReadout">
               <span id="tickModeBadge" class="tickModeBadge">Session HOD/LOD</span>
               <span id="tickValue" class="tickValue neutral">0</span>
             </div>
           </div>
+          <div id="tickChart" class="tickChart"></div>
           <div class="tickScaleHint">
-            <span class="tickLegendPos">Buy pressure</span>
+            <span class="tickLegendPos">More upside breakouts</span>
             <span class="tickLegendZero">0 = balanced</span>
-            <span class="tickLegendNeg">Sell pressure</span>
+            <span class="tickLegendNeg">More downside breakouts</span>
           </div>
         </section>
         <section class="panel rightTabs" aria-label="Right panel tabs">

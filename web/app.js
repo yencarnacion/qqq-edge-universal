@@ -9,6 +9,7 @@ const soundBtn = document.getElementById("soundBtn");
 const soundState = document.getElementById("soundState");
 const chkEssentialsTop = document.getElementById("chkEssentialsTop");
 const chkEssentialsTick = document.getElementById("chkEssentialsTick");
+const chkEssentialsQqqTape = document.getElementById("chkEssentialsQqqTape");
 
 // Separate fallbacks for up/down
 const fallbackAudioUp = document.getElementById("alertAudioUp");
@@ -39,9 +40,26 @@ const baselineCumulative = document.querySelector('input[name="baseline"][value=
 const rvolActive = document.getElementById("rvolActive");
 const silentMode = document.getElementById("silentMode");
 const bucketSize = document.getElementById("bucketSize");
+const chkCurrentSounds = document.getElementById("chkCurrentSounds");
+const chkSyntheticSounds = document.getElementById("chkSyntheticSounds");
 // NEW Recent Alerts
 const alertsTableBody = document.querySelector("#alertsTable tbody");
 const alertsCount = document.getElementById("alertsCount");
+// QQQ Tape panel
+const qqqTapeChartEl = document.getElementById("qqqTapeChart");
+const qqqTapeExecEl = document.getElementById("qqqTapeExec");
+const qqqTapeStateEl = document.getElementById("qqqTapeState");
+const qqqTapePriceEl = document.getElementById("qqqTapePrice");
+const qqqTapeFairValueEl = document.getElementById("qqqTapeFairValue");
+const qqqTapeFairGapEl = document.getElementById("qqqTapeFairGap");
+const qqqTapeExecBpsEl = document.getElementById("qqqTapeExecBps");
+const qqqTapeSpreadEl = document.getElementById("qqqTapeSpread");
+const qqqTapeFreshnessEl = document.getElementById("qqqTapeFreshness");
+const qqqTapeCoverageEl = document.getElementById("qqqTapeCoverage");
+const qqqTapeTradeEl = document.getElementById("qqqTapeTrade");
+const qqqTapeQuoteEl = document.getElementById("qqqTapeQuote");
+const qqqTapeMicroEl = document.getElementById("qqqTapeMicro");
+const qqqTapeTopEl = document.getElementById("qqqTapeTop");
 // Synthetic TICK panel
 const tickChartEl = document.getElementById("tickChart");
 const tickValueEl = document.getElementById("tickValue");
@@ -60,14 +78,31 @@ let audioBufUp = null;
 let audioBufDown = null;
 let scalpAudioBuf = null;
 let soundEnabled = true; // default: Sound ON
+let currentAlertSoundsEnabled = true;
+let syntheticTapeSoundsEnabled = true;
+let lastSyntheticPulseAtMs = 0;
+let lastSyntheticDir = 0;
+let lastSyntheticLevel = 0;
+let syntheticDirStreak = 0;
+const activeSyntheticSources = new Set();
+const synthBullBuffers = [];
+const synthBearBuffers = [];
 let paused = false;
 let historyLoaded = false;
 let streamRunning = false;
+let qqqModeEnabled = false;
 const HISTORY_LIMIT = 200; // Hard cap on stored alerts to prevent Chrome crash
 let allAlerts = []; // [{kind, sym, name, sources, price, time, ts_unix}]
 let recentAlerts = []; // for RVOL [{time, symbol, price, volume, baseline, rvol, method}]
 let silent = false;
 let sessionDateET = ""; // YYYY-MM-DD (from /api/status)
+const QQQ_TAPE_HISTORY_LIMIT = 2400;
+const QQQ_TAPE_VISIBLE_BARS = 40;
+let qqqTapeChart = null;
+let qqqTapeSeries = null;
+let qqqTapeLineSeries = null;
+let qqqTapeRO = null;
+let qqqTapeData = []; // [{time, value, color}]
 const TICK_HISTORY_LIMIT = 2400;
 const TICK_VISIBLE_BARS = 20;
 const tickDirsBySymbol = new Map(); // sym -> -1 | 1
@@ -189,15 +224,17 @@ function runMiniBarsTask(task) {
     drainMiniBarsQueue();
   });
 }
-const RIGHT_TAB_STORAGE_KEY = "alertcat.right_tab";
-const ESSENTIALS_STORAGE_KEY = "alertcat.essentials";
+const RIGHT_TAB_STORAGE_KEY = "qqq-edge.right_tab";
+const ESSENTIALS_STORAGE_KEY = "qqq-edge.essentials";
+const CURRENT_SOUNDS_STORAGE_KEY = "qqq-edge.current_sounds";
+const SYNTH_SOUNDS_STORAGE_KEY = "qqq-edge.synth_sounds";
 // --- Pinning (persisted in this browser) ---
 const pinLimit = 6;
 let pinnedOrder = []; // array of ids (in pin insertion order)
 let pinnedSet = new Set(); // quick membership
 function loadPins(){
   try {
-    const raw = localStorage.getItem("alertcat.pins") || "[]";
+    const raw = localStorage.getItem("qqq-edge.pins") || "[]";
     const arr = JSON.parse(raw);
     pinnedOrder = Array.isArray(arr) ? arr.filter(Boolean) : [];
     pinnedSet = new Set(pinnedOrder);
@@ -207,7 +244,7 @@ function loadPins(){
   }
 }
 function savePins(){
-  localStorage.setItem("alertcat.pins", JSON.stringify(pinnedOrder));
+  localStorage.setItem("qqq-edge.pins", JSON.stringify(pinnedOrder));
 }
 function isPinnedId(id){ return pinnedSet.has(id); }
 function togglePinById(id){
@@ -230,6 +267,204 @@ function togglePinById(id){
 function setStatus(text, ok=false){
   statusPill.textContent = text;
   statusPill.className = ok ? "pill ok" : "pill";
+}
+function clamp01(v) {
+  if (!Number.isFinite(v)) return 0;
+  return Math.min(1, Math.max(0, v));
+}
+function loadSoundChannelPrefs() {
+  try {
+    const rawCurrent = localStorage.getItem(CURRENT_SOUNDS_STORAGE_KEY);
+    if (rawCurrent === "0" || rawCurrent === "1") {
+      currentAlertSoundsEnabled = rawCurrent === "1";
+    }
+  } catch {}
+  try {
+    const rawSynth = localStorage.getItem(SYNTH_SOUNDS_STORAGE_KEY);
+    if (rawSynth === "0" || rawSynth === "1") {
+      syntheticTapeSoundsEnabled = rawSynth === "1";
+    }
+  } catch {}
+  if (chkCurrentSounds) chkCurrentSounds.checked = currentAlertSoundsEnabled;
+  if (chkSyntheticSounds) chkSyntheticSounds.checked = syntheticTapeSoundsEnabled;
+}
+function persistSoundChannelPrefs() {
+  try {
+    localStorage.setItem(CURRENT_SOUNDS_STORAGE_KEY, currentAlertSoundsEnabled ? "1" : "0");
+    localStorage.setItem(SYNTH_SOUNDS_STORAGE_KEY, syntheticTapeSoundsEnabled ? "1" : "0");
+  } catch {}
+}
+function canPlayCurrentSounds() {
+  return soundEnabled && !silent && currentAlertSoundsEnabled;
+}
+function canPlaySyntheticSounds() {
+  return soundEnabled && !silent && syntheticTapeSoundsEnabled;
+}
+function stopCurrentSounds() {
+  if (fallbackAudioUp) {
+    try { fallbackAudioUp.pause(); fallbackAudioUp.currentTime = 0; } catch {}
+  }
+  if (fallbackAudioDown) {
+    try { fallbackAudioDown.pause(); fallbackAudioDown.currentTime = 0; } catch {}
+  }
+  try { scalpAudio.pause(); scalpAudio.currentTime = 0; } catch {}
+}
+function stopSyntheticSounds() {
+  for (const src of Array.from(activeSyntheticSources)) {
+    try { src.stop(); } catch {}
+  }
+  activeSyntheticSources.clear();
+  lastSyntheticPulseAtMs = 0;
+  lastSyntheticDir = 0;
+  lastSyntheticLevel = 0;
+  syntheticDirStreak = 0;
+}
+function registerSyntheticSource(src) {
+  if (!src) return;
+  activeSyntheticSources.add(src);
+  src.onended = () => activeSyntheticSources.delete(src);
+}
+function qqqEdgeIntensityFromMsg(msg) {
+  const execEdge = Math.abs(Number(msg?.exec_edge_bps ?? msg?.edge_bps ?? 0));
+  const fairGap = Math.abs(Number(msg?.fair_gap_bps ?? 0));
+  const impulse = Math.abs(Number(msg?.trade_impulse ?? 0));
+  const spread = Math.max(0, Number(msg?.spread_bps ?? 0));
+  const freshness = Math.max(0, Number(msg?.freshness_ms ?? 0));
+  const tradableBonus = msg?.tradable ? 0.65 : 0;
+
+  if (freshness > 3200) return 0;
+
+  let score = execEdge;
+  score += 0.30 * fairGap;
+  score += 0.18 * impulse;
+  score += tradableBonus;
+  score -= Math.max(0, spread - 0.35) * 0.10;
+
+  const freshnessPenalty = freshness <= 1000
+    ? 0
+    : Math.min(0.75, (freshness - 1000) / 2500);
+
+  return clamp01((score / 6.5) * (1 - freshnessPenalty));
+}
+function synthPulseGapMs(level, tradable) {
+  const base = tradable ? 850 : 1150;
+  return Math.round(base - level * 110);
+}
+function addShapedTone(data, sampleRate, startSec, durSec, f0, f1, amp, harmonic = 0.25) {
+  const start = Math.max(0, Math.floor(startSec * sampleRate));
+  const len = Math.max(1, Math.floor(durSec * sampleRate));
+  let phaseA = 0;
+  let phaseB = 0;
+  for (let i = 0; i < len && start + i < data.length; i++) {
+    const p = len > 1 ? i / (len - 1) : 0;
+    const freq = f0 + (f1 - f0) * p;
+    phaseA += (2 * Math.PI * freq) / sampleRate;
+    phaseB += (2 * Math.PI * freq * 2.0) / sampleRate;
+    const attack = Math.min(1, p / 0.15);
+    const release = Math.min(1, (1 - p) / 0.22);
+    const env = Math.min(attack, release);
+    const sample = (Math.sin(phaseA) + harmonic * Math.sin(phaseB)) * amp * env;
+    data[start + i] += sample;
+  }
+}
+function finalizeBuffer(data) {
+  for (let i = 0; i < data.length; i++) {
+    if (data[i] > 1) data[i] = 1;
+    else if (data[i] < -1) data[i] = -1;
+  }
+}
+function buildBullSynthBuffer(sampleRate, intensity) {
+  if (!audioCtx) return null;
+  const i = clamp01(intensity);
+  const durSec = 0.24 + 0.03 * i;
+  const n = Math.max(1, Math.floor(sampleRate * durSec));
+  const data = new Float32Array(n);
+
+  addShapedTone(data, sampleRate, 0.00, 0.085 + 0.01 * i, 760 + 60 * i, 980 + 120 * i, 0.12 + 0.03 * i, 0.22);
+  addShapedTone(data, sampleRate, 0.11, 0.080 + 0.015 * i, 910 + 80 * i, 1220 + 150 * i, 0.10 + 0.03 * i, 0.18);
+
+  finalizeBuffer(data);
+  const buf = audioCtx.createBuffer(1, n, sampleRate);
+  buf.copyToChannel(data, 0, 0);
+  return buf;
+}
+function buildBearSynthBuffer(sampleRate, intensity) {
+  if (!audioCtx) return null;
+  const i = clamp01(intensity);
+  const durSec = 0.26 + 0.04 * i;
+  const n = Math.max(1, Math.floor(sampleRate * durSec));
+  const data = new Float32Array(n);
+
+  addShapedTone(data, sampleRate, 0.00, 0.095 + 0.015 * i, 430 + 35 * i, 260 - 20 * i, 0.13 + 0.03 * i, 0.30);
+  addShapedTone(data, sampleRate, 0.13, 0.085 + 0.015 * i, 300 + 25 * i, 180 - 10 * i, 0.10 + 0.03 * i, 0.36);
+
+  finalizeBuffer(data);
+  const buf = audioCtx.createBuffer(1, n, sampleRate);
+  buf.copyToChannel(data, 0, 0);
+  return buf;
+}
+function ensureSyntheticBuffers() {
+  if (!audioCtx) return;
+  if (synthBullBuffers.length > 0 && synthBearBuffers.length > 0) return;
+  const sampleRate = Math.max(22050, Math.floor(audioCtx.sampleRate || 44100));
+  for (let level = 0; level <= 5; level++) {
+    const intensity = level / 5;
+    synthBullBuffers[level] = buildBullSynthBuffer(sampleRate, intensity);
+    synthBearBuffers[level] = buildBearSynthBuffer(sampleRate, intensity);
+  }
+}
+function playSyntheticBuffer(buf) {
+  if (!audioCtx || !buf) return;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(audioCtx.destination);
+  registerSyntheticSource(src);
+  src.start();
+}
+function maybePlaySyntheticTapeSound(msg) {
+  if (!canPlaySyntheticSounds()) return;
+  if (!audioCtx) return;
+  ensureSyntheticBuffers();
+
+  const edge = Number(msg?.exec_edge_bps ?? msg?.edge_bps ?? 0);
+  const dir = edge > 0 ? 1 : (edge < 0 ? -1 : 0);
+  const intensity = qqqEdgeIntensityFromMsg(msg);
+  const level = Math.max(0, Math.min(5, Math.round(intensity * 5)));
+  const tradable = !!msg?.tradable;
+  const spread = Math.max(0, Number(msg?.spread_bps ?? 0));
+  const freshness = Math.max(0, Number(msg?.freshness_ms ?? 0));
+
+  if (!dir || level === 0 || freshness > 3200) {
+    lastSyntheticDir = 0;
+    lastSyntheticLevel = 0;
+    syntheticDirStreak = 0;
+    return;
+  }
+
+  const watchable = Math.abs(edge) >= Math.max(0.55, spread * 1.20);
+  if (!tradable && !watchable) return;
+
+  if (dir === lastSyntheticDir) syntheticDirStreak += 1;
+  else syntheticDirStreak = 1;
+
+  // Require stability unless the setup is already tradable.
+  if (!tradable && syntheticDirStreak < 2) return;
+
+  const nowMs = (typeof performance !== "undefined" && performance.now)
+    ? performance.now()
+    : Date.now();
+  const forcePulse = dir !== lastSyntheticDir || level > lastSyntheticLevel;
+  const minGap = synthPulseGapMs(level, tradable);
+  if (!forcePulse && nowMs - lastSyntheticPulseAtMs < minGap) return;
+
+  if (audioCtx.state === "suspended") {
+    try { audioCtx.resume(); } catch {}
+  }
+  const buf = dir > 0 ? synthBullBuffers[level] : synthBearBuffers[level];
+  playSyntheticBuffer(buf);
+  lastSyntheticPulseAtMs = nowMs;
+  lastSyntheticDir = dir;
+  lastSyntheticLevel = level;
 }
 async function loadSound() {
   try {
@@ -270,7 +505,7 @@ async function enableSound() {
 }
 
 function playUpSound() {
-  if (!soundEnabled || silent) return;
+  if (!canPlayCurrentSounds()) return;
 
   if (audioCtx && audioBufUp) {
     try {
@@ -288,7 +523,7 @@ function playUpSound() {
 }
 
 function playDownSound() {
-  if (!soundEnabled || silent) return;
+  if (!canPlayCurrentSounds()) return;
 
   if (audioCtx && audioBufDown) {
     try {
@@ -310,7 +545,7 @@ function playSound() {
   playUpSound();
 }
 function playScalpSound() {
-  if (!soundEnabled || silent) return;
+  if (!canPlayCurrentSounds()) return;
   if (audioCtx && scalpAudioBuf) {
     try {
       const src = audioCtx.createBufferSource();
@@ -518,6 +753,232 @@ function initRightTabs() {
   tabLiveBtn.addEventListener("click", () => setRightTab("live"));
   tabRvolBtn.addEventListener("click", () => setRightTab("rvol"));
 }
+function qqqTapeColor(value) {
+  if (value >= 1.50) return "#009E73";
+  if (value >= 0.50) return "#56B4E9";
+  if (value <= -1.50) return "#D55E00";
+  if (value <= -0.50) return "#E69F00";
+  return "#8d95a6";
+}
+function updateQQQTapeReadout(msg) {
+  if (!qqqTapeExecEl) return;
+  const execEdgeCents = Number(msg?.exec_edge_cents ?? msg?.edge_cents ?? 0);
+  const execEdgeBps = Number(msg?.exec_edge_bps ?? msg?.edge_bps ?? 0);
+  const fairGapBps = Number(msg?.fair_gap_bps ?? msg?.lead_lag_gap_bps ?? 0);
+  const fairValue = Number(msg?.fair_value || 0);
+  const qqqPrice = Number(msg?.qqq_price || 0);
+  const spread = Number(msg?.spread_bps || 0);
+  const freshness = Math.max(0, Number(msg?.freshness_ms || 0));
+  const coverage = Number(msg?.basket_coverage || 0);
+  const tradable = !!msg?.tradable;
+
+  qqqTapeExecEl.textContent = `${execEdgeCents > 0 ? "+" : ""}${execEdgeCents.toFixed(2)}¢`;
+  qqqTapeExecEl.classList.remove("positive", "negative", "neutral");
+  qqqTapeExecEl.classList.add(execEdgeCents > 0 ? "positive" : (execEdgeCents < 0 ? "negative" : "neutral"));
+
+  if (qqqTapeStateEl) {
+    const watchOnly = !tradable && Math.abs(execEdgeBps) >= Math.max(0.35, spread);
+    qqqTapeStateEl.textContent = tradable ? "Tradable" : (watchOnly ? "Watch" : "No Trade");
+    qqqTapeStateEl.classList.remove("tradable", "watch", "idle");
+    qqqTapeStateEl.classList.add(tradable ? "tradable" : (watchOnly ? "watch" : "idle"));
+  }
+  if (qqqTapePriceEl) {
+    qqqTapePriceEl.textContent = qqqPrice > 0 ? `$${qqqPrice.toFixed(2)}` : "—";
+  }
+  if (qqqTapeFairValueEl) qqqTapeFairValueEl.textContent = fairValue > 0 ? `$${fairValue.toFixed(2)}` : "—";
+  if (qqqTapeFairGapEl) qqqTapeFairGapEl.textContent = `${fairGapBps > 0 ? "+" : ""}${fairGapBps.toFixed(2)} bps`;
+  if (qqqTapeExecBpsEl) qqqTapeExecBpsEl.textContent = `${execEdgeBps > 0 ? "+" : ""}${execEdgeBps.toFixed(2)} bps`;
+  if (qqqTapeSpreadEl) qqqTapeSpreadEl.textContent = `${spread.toFixed(2)} bps`;
+  if (qqqTapeFreshnessEl) qqqTapeFreshnessEl.textContent = `${freshness} ms`;
+  if (qqqTapeCoverageEl) qqqTapeCoverageEl.textContent = coverage > 0 ? `${(coverage * 100).toFixed(1)}%` : "—";
+  if (qqqTapeTradeEl) qqqTapeTradeEl.textContent = Number(msg?.trade_impulse || 0).toFixed(3);
+  if (qqqTapeQuoteEl) qqqTapeQuoteEl.textContent = Number(msg?.quote_imbalance || 0).toFixed(3);
+  if (qqqTapeMicroEl) qqqTapeMicroEl.textContent = Number(msg?.micro_edge || 0).toFixed(3);
+
+  if (qqqTapeTopEl) {
+    const top = Array.isArray(msg?.top) ? msg.top : [];
+    qqqTapeTopEl.innerHTML = "";
+    if (top.length === 0) {
+      qqqTapeTopEl.innerHTML = `<span class="muted">Waiting for QQQ + leader alignment…</span>`;
+    } else {
+      top.forEach(item => {
+        const contrib = Number(item?.contribution || 0);
+        const chip = document.createElement("span");
+        chip.className = `tapeChip ${contrib > 0 ? "pos" : (contrib < 0 ? "neg" : "")}`;
+        chip.textContent = `${String(item?.sym || "").toUpperCase()} ${contrib > 0 ? "+" : ""}${contrib.toFixed(3)}`;
+        qqqTapeTopEl.appendChild(chip);
+      });
+    }
+  }
+}
+function ensureQQQTapeChart() {
+  if (!qqqTapeChartEl || qqqTapeChart) return;
+  const LWC = (typeof window !== "undefined") ? window.LightweightCharts : null;
+  if (!LWC || typeof LWC.createChart !== "function") return;
+  const width = qqqTapeChartEl.clientWidth || 320;
+  const height = qqqTapeChartEl.clientHeight || 165;
+  qqqTapeChart = LWC.createChart(qqqTapeChartEl, {
+    width,
+    height,
+    layout: { background: { type: "solid", color: "#0f131d" }, textColor: "#d6dfef" },
+    grid: {
+      vertLines: { color: "rgba(155, 170, 195, 0.08)" },
+      horzLines: { color: "rgba(155, 170, 195, 0.12)" },
+    },
+    crosshair: { mode: 0 },
+    timeScale: {
+      borderVisible: false,
+      timeVisible: true,
+      secondsVisible: false,
+      rightOffset: 0.25,
+      barSpacing: 8,
+      minBarSpacing: 4,
+      fixRightEdge: true,
+      lockVisibleTimeRangeOnResize: true,
+    },
+    rightPriceScale: {
+      borderVisible: false,
+      autoScale: true,
+      scaleMargins: { top: 0.15, bottom: 0.15 },
+    },
+    localization: {
+      priceFormatter: (price) => {
+        const v = Number(price || 0);
+        return `${v > 0 ? "+" : ""}${v.toFixed(2)}`;
+      },
+    },
+  });
+  qqqTapeSeries = qqqTapeChart.addHistogramSeries({
+    base: 0,
+    color: "#8d95a6",
+    lastValueVisible: false,
+    priceLineVisible: false,
+    priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+  });
+  qqqTapeLineSeries = qqqTapeChart.addLineSeries({
+    color: "#dbe6ff",
+    lineWidth: 2,
+    lineStyle: 0,
+    lastValueVisible: false,
+    priceLineVisible: false,
+    crosshairMarkerVisible: true,
+    crosshairMarkerRadius: 2,
+    crosshairMarkerBorderColor: "#dbe6ff",
+    crosshairMarkerBackgroundColor: "#0f131d",
+    priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+  });
+  if (qqqTapeLineSeries && typeof qqqTapeLineSeries.createPriceLine === "function") {
+    qqqTapeLineSeries.createPriceLine({
+      price: 0,
+      color: "#b9c4dd",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: "0",
+    });
+  }
+  if (qqqTapeRO) {
+    try { qqqTapeRO.disconnect(); } catch {}
+    qqqTapeRO = null;
+  }
+  if (typeof ResizeObserver === "function") {
+    qqqTapeRO = new ResizeObserver(() => {
+      if (!qqqTapeChart || !qqqTapeChartEl) return;
+      qqqTapeChart.applyOptions({
+        width: qqqTapeChartEl.clientWidth || 320,
+        height: qqqTapeChartEl.clientHeight || 165,
+      });
+    });
+    qqqTapeRO.observe(qqqTapeChartEl);
+  }
+}
+function updateQQQTapeScaleBounds() {
+  if (!qqqTapeSeries || !qqqTapeLineSeries) return;
+  const fixedRangeProvider = () => ({
+    priceRange: { minValue: -12, maxValue: 12 },
+  });
+  try {
+    qqqTapeSeries.applyOptions({ autoscaleInfoProvider: fixedRangeProvider });
+    qqqTapeLineSeries.applyOptions({ autoscaleInfoProvider: fixedRangeProvider });
+  } catch {}
+}
+function updateQQQTapeVisibleRange() {
+  if (!qqqTapeChart || qqqTapeData.length === 0) return;
+  const to = qqqTapeData.length - 1 + 0.25;
+  const from = to - Math.max(2, QQQ_TAPE_VISIBLE_BARS - 1);
+  try {
+    qqqTapeChart.timeScale().setVisibleLogicalRange({ from, to });
+  } catch {}
+}
+function drawQQQTapeSeries(fit = false) {
+  ensureQQQTapeChart();
+  if (!qqqTapeSeries) return;
+  qqqTapeSeries.setData(qqqTapeData);
+  if (qqqTapeLineSeries) {
+    qqqTapeLineSeries.setData(qqqTapeData.map(p => ({ time: p.time, value: p.value })));
+  }
+  updateQQQTapeScaleBounds();
+  updateQQQTapeVisibleRange();
+  if (qqqTapeChart) {
+    if (fit && qqqTapeData.length <= 2) {
+      qqqTapeChart.timeScale().fitContent();
+      updateQQQTapeVisibleRange();
+    } else {
+      qqqTapeChart.timeScale().scrollToRealTime();
+      updateQQQTapeVisibleRange();
+    }
+  }
+}
+function resetQQQTapeChart() {
+  const now = Math.floor(Date.now() / 1000);
+  qqqTapeData = [
+    { time: Math.max(1, now - 1), value: 0, color: qqqTapeColor(0) },
+    { time: Math.max(1, now), value: 0, color: qqqTapeColor(0) },
+  ];
+  updateQQQTapeReadout({
+    exec_edge_bps: 0,
+    exec_edge_cents: 0,
+    qqq_price: 0,
+    fair_value: 0,
+    fair_gap_bps: 0,
+    spread_bps: 0,
+    freshness_ms: 0,
+    basket_coverage: 0,
+    trade_impulse: 0,
+    quote_imbalance: 0,
+    micro_edge: 0,
+    tradable: false,
+    top: [],
+  });
+  drawQQQTapeSeries(true);
+}
+function appendQQQTapePoint(msg, redraw = true) {
+  const rawTime = Number(msg?.ts_unix);
+  let pointTime = Number.isFinite(rawTime) && rawTime > 0
+    ? Math.floor(rawTime / 1000)
+    : Math.floor(Date.now() / 1000);
+  const n = qqqTapeData.length;
+  if (n > 0 && pointTime <= qqqTapeData[n - 1].time) {
+    pointTime = qqqTapeData[n - 1].time + 1;
+  }
+  const execEdgeBps = Number(msg?.exec_edge_bps ?? msg?.edge_bps ?? 0);
+  qqqTapeData.push({
+    time: pointTime,
+    value: execEdgeBps,
+    color: qqqTapeColor(execEdgeBps),
+  });
+  if (qqqTapeData.length > QQQ_TAPE_HISTORY_LIMIT) {
+    qqqTapeData = qqqTapeData.slice(qqqTapeData.length - QQQ_TAPE_HISTORY_LIMIT);
+  }
+  updateQQQTapeReadout(msg);
+  if (redraw) drawQQQTapeSeries(false);
+}
+function ingestQQQTape(msg, withSound = true) {
+  appendQQQTapePoint(msg, true);
+  if (withSound) {
+    maybePlaySyntheticTapeSound(msg);
+  }
+}
 function tickModeInfo(mode = selectedLevelsMode()) {
   if (mode === "local") {
     return {
@@ -541,7 +1002,7 @@ function syncTickModeUI() {
   tickModeBadge.classList.toggle("local", info.badgeClass === "local");
 }
 function tickColor(value) {
-  const universe = Math.max(1, tickDirsBySymbol.size);
+  const universe = Math.max(1, tickUniverseSize || tickDirsBySymbol.size || 1);
   const ratio = value / universe;
   if (value === 0) return "#8d95a6";
   if (value > 0) return ratio >= 0.6 ? "#009E73" : "#56B4E9";
@@ -755,6 +1216,10 @@ function rebuildTickFromAlerts(alerts) {
   tickDirsBySymbol.clear();
   tickData = [];
   tickCurrentValue = 0;
+  if (qqqModeEnabled) {
+    resetTickChart();
+    return;
+  }
   const ordered = Array.isArray(alerts) ? alerts.slice() : [];
   ordered.sort((a, b) => Number(a?.ts_unix || 0) - Number(b?.ts_unix || 0));
   for (const a of ordered) {
@@ -991,6 +1456,13 @@ function renderPinned() {
   for (const id of Array.from(chartsById.keys())) {
     // we clear all charts in renderAll(); nothing specific here
   }
+  if (qqqModeEnabled) {
+    if (pinnedList) pinnedList.innerHTML = "";
+    pinnedWrap.classList.add("hidden");
+    btnUnpinAll.disabled = true;
+    pinnedCountEl.textContent = "(0)";
+    return;
+  }
   // Build a quick index: id -> alert
   const amap = new Map(allAlerts.map(a => [alertId(a), a]));
   // Keep only pins that still exist in history
@@ -1026,6 +1498,9 @@ function renderPinned() {
 }
 function renderFeed() {
   feed.innerHTML = "";
+  if (qqqModeEnabled) {
+    return;
+  }
   // Exclude pinned from the feed and apply HOD/LOD filter
   const filtered = allAlerts.filter(a => !isPinnedId(alertId(a)) && shouldShow(a.kind));
   const frag = document.createDocumentFragment();
@@ -1072,6 +1547,9 @@ function recomputeLiveCapacity() {
 function seedLiveFromHistory() {
   if (!liveFeed) return;
   liveFeed.innerHTML = "";
+  if (qqqModeEnabled) {
+    return;
+  }
   // take last N alerts (newest last in allAlerts) so we can prepend in correct order
   const take = Math.min(liveMaxItems, allAlerts.length);
   for (let i = allAlerts.length - take; i < allAlerts.length; i++) {
@@ -1085,6 +1563,7 @@ function seedLiveFromHistory() {
 }
 function addLiveCard(a) {
   if (!liveFeed) return;
+  if (qqqModeEnabled) return;
   const node = buildAlertCard(a, false, false, true); // LIVE variant
   liveFeed.prepend(node); // newest to top
   trimLive();
@@ -1098,13 +1577,32 @@ function renderAll(){
   recomputeLiveCapacity();
   seedLiveFromHistory();
 }
+function applyQQQMode(enabled) {
+  qqqModeEnabled = !!enabled;
+  document.body.classList.toggle("qqqMode", qqqModeEnabled);
+  if (qqqModeEnabled) {
+    if (feed) feed.innerHTML = "";
+    if (liveFeed) liveFeed.innerHTML = "";
+    if (pinnedList) pinnedList.innerHTML = "";
+    if (pinnedWrap) pinnedWrap.classList.add("hidden");
+    resetTickChart();
+  } else if (historyLoaded) {
+    renderAll();
+    rebuildTickFromAlerts(allAlerts);
+  }
+  recomputeFeedCapacity();
+  recomputeLiveCapacity();
+}
 function addIncomingAlert(a){
   allAlerts.push(a);
-  ingestTickAlert(a);
   // Prevent infinite memory growth in array
   if (allAlerts.length > HISTORY_LIMIT) {
     allAlerts.shift();
   }
+  if (qqqModeEnabled) {
+    return;
+  }
+  ingestTickAlert(a);
 
   const isScalp = typeof a.kind === "string" && a.kind.startsWith("scalp_");
   const visible = shouldShow(a.kind) && !isPinnedId(alertId(a));
@@ -1585,6 +2083,10 @@ function connectWS() {
         addIncomingAlert(msg);
         return;
       }
+      if (msg.type === "qqq_tape") {
+        ingestQQQTape(msg);
+        return;
+      }
       // NEW: RVOL history and alerts
       if (msg.type === "rvol_history") {
         // Normalize server payload ({sym: "...", ...}) to the UI table shape ({symbol: "...", ...})
@@ -1675,6 +2177,9 @@ async function initStatus() {
     if (typeof j?.watchlist_count === "number") {
       setTickUniverseSize(j.watchlist_count);
     }
+    if (j?.qqq_tape) {
+      ingestQQQTape(j.qqq_tape, false);
+    }
     if (historyLoaded) rebuildTickFromAlerts(allAlerts);
     // NEW: Sync RVOL settings
     if (j?.rvol) {
@@ -1702,6 +2207,7 @@ async function initStatus() {
       }
       compileIndustryRegex();
     }
+    applyQQQMode(!!j?.qqq_mode);
   } catch {
     setStatus("Disconnected");
   }
@@ -1713,14 +2219,14 @@ function setPausedUI(v) {
 /* ------------ Compact mode toggle (persisted) ------------ */
 function setCompact(on){
   document.body.classList.toggle('compact', !!on);
-  try { localStorage.setItem('alertcat.compact', on ? '1' : '0'); } catch {}
+  try { localStorage.setItem('qqq-edge.compact', on ? '1' : '0'); } catch {}
   chartsLimit = on ? 2 : 5; // fewer auto-charts in compact mode
   renderAll(); // re-render to apply density + limits
 }
 function initCompact(){
   let on = false;
   try {
-    const saved = localStorage.getItem('alertcat.compact');
+    const saved = localStorage.getItem('qqq-edge.compact');
     on = saved === '1';
   } catch {}
   // URL param can force compact on first load
@@ -1734,6 +2240,7 @@ function setEssentials(on){
   document.body.classList.toggle("essentials", enabled);
   if (chkEssentialsTop) chkEssentialsTop.checked = enabled;
   if (chkEssentialsTick) chkEssentialsTick.checked = enabled;
+  if (chkEssentialsQqqTape) chkEssentialsQqqTape.checked = enabled;
   if (enabled) setRightTab("live");
   try { localStorage.setItem(ESSENTIALS_STORAGE_KEY, enabled ? "1" : "0"); } catch {}
   recomputeFeedCapacity();
@@ -1755,6 +2262,7 @@ function initEssentials(){
   setStatus("Loading…");
   loadSound().then(() => {});
   loadPins();
+  loadSoundChannelPrefs();
   // Default sound ON; prime/resume audio context on first gesture
   if (soundState) soundState.textContent = "Sound ON";
   soundBtn.addEventListener("click", enableSound);
@@ -1766,6 +2274,8 @@ function initEssentials(){
   initRightTabs();
   initEssentials();
   syncTickModeUI();
+  ensureQQQTapeChart();
+  resetQQQTapeChart();
   ensureTickChart();
   resetTickChart();
   if (chkCompact) {
@@ -1778,6 +2288,11 @@ function initEssentials(){
   }
   if (chkEssentialsTick) {
     chkEssentialsTick.addEventListener("change", (e) => {
+      setEssentials(!!e.target.checked);
+    });
+  }
+  if (chkEssentialsQqqTape) {
+    chkEssentialsQqqTape.addEventListener("change", (e) => {
       setEssentials(!!e.target.checked);
     });
   }
@@ -1814,11 +2329,13 @@ function initEssentials(){
     // keep pins; they will re-render when history arrives
     renderAll();
     resetTickForContextChange();
+    resetQQQTapeChart();
   });
   // Stop
   btnStop.addEventListener("click", async () => {
     const j = await postJSON("/api/stream", { mode: "stop" });
     streamRunning = !j?.ok ? streamRunning : false;
+    if (j?.ok) resetQQQTapeChart();
   });
   // Pause alerts in this tab only
   btnPause.addEventListener("click", () => {
@@ -1844,6 +2361,7 @@ function initEssentials(){
     try { await postJSON("/api/clear", {}); } catch {}
     renderAll();
     resetTickForContextChange();
+    resetQQQTapeChart();
   });
   // Reload watchlist (NEW)
   if (btnReloadWL) {
@@ -1967,6 +2485,20 @@ function initEssentials(){
       ws.send(JSON.stringify({type: "control", action: "set_rvol_active", value: rvolActive.checked}));
     }
   });
+  if (chkCurrentSounds) {
+    chkCurrentSounds.addEventListener("change", (e) => {
+      currentAlertSoundsEnabled = !!e.target.checked;
+      persistSoundChannelPrefs();
+      if (!currentAlertSoundsEnabled) stopCurrentSounds();
+    });
+  }
+  if (chkSyntheticSounds) {
+    chkSyntheticSounds.addEventListener("change", (e) => {
+      syntheticTapeSoundsEnabled = !!e.target.checked;
+      persistSoundChannelPrefs();
+      if (!syntheticTapeSoundsEnabled) stopSyntheticSounds();
+    });
+  }
   silentMode.addEventListener("change", (e) => {
     silent = e.target.checked;
     if (silent) stopAllSounds();
@@ -2000,7 +2532,8 @@ function initEssentials(){
 })();
 
 function stopAllSounds() {
-  // Placeholder for stopping sounds if needed
+  stopCurrentSounds();
+  stopSyntheticSounds();
 }
 
 // Removed custom scalp live card: live visuals come from mirrored generic alerts ("alert" with kind "scalp_*").

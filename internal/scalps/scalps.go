@@ -29,12 +29,12 @@ type OneMinBar struct {
 }
 
 type Alert struct {
-	Kind  Kind   `json:"kind"`
-	Phase Phase  `json:"phase"`
-	Sym   string `json:"sym"`
-	Time  string `json:"time"`
+	Kind  Kind    `json:"kind"`
+	Phase Phase   `json:"phase"`
+	Sym   string  `json:"sym"`
+	Time  string  `json:"time"`
 	Price float64 `json:"price"`
-	Info  string `json:"info,omitempty"`
+	Info  string  `json:"info,omitempty"`
 }
 
 // Config holds tunables; defaults chosen from user specs.
@@ -67,11 +67,11 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Band1K:             1.0,
-		Band2K:             2.0,
-		RbNetDropPct:       0.0075,
-		RbLookbackBars:     3,
-		RbVolMult:          2.0,
+		Band1K:         1.0,
+		Band2K:         2.0,
+		RbNetDropPct:   0.0075,
+		RbLookbackBars: 3,
+		RbVolMult:      2.0,
 		// Upside rubberband (parabolic)
 		RbUpNetRisePct:     0.0075,
 		RbUpLookbackBars:   3,
@@ -112,7 +112,7 @@ type symState struct {
 	VwapSumTP2V float64 // sum(tp^2 * Vol)
 
 	// 18-SMA state
-	SmaSum   float64
+	SmaSum float64
 	// track previous SMA for cross
 	PrevSMA  float64
 	PrevVWAP float64
@@ -596,5 +596,3 @@ func (d *Detector) detectFashionablyLate(s *symState, bar OneMinBar, vwap, sma18
 	}
 	return
 }
-
-

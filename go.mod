@@ -1,4 +1,4 @@
-module alertcat
+module qqq-edge
 
 go 1.21
 

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	poly "alertcat/internal/polygon"
-	rvolpkg "alertcat/internal/rvol"
+	poly "qqq-edge/internal/polygon"
+	rvolpkg "qqq-edge/internal/rvol"
 )
 
 func TestServeStaticSoundEndpointsServeConfiguredFiles(t *testing.T) {
