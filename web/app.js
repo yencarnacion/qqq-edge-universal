@@ -7,6 +7,7 @@ const tabLiveBtn = document.getElementById("tabLiveBtn");
 const tabRvolBtn = document.getElementById("tabRvolBtn");
 const soundBtn = document.getElementById("soundBtn");
 const soundState = document.getElementById("soundState");
+const chkEssentialsTop = document.getElementById("chkEssentialsTop");
 const chkEssentialsQqqTape = document.getElementById("chkEssentialsQqqTape");
 
 // Separate fallbacks for up/down
@@ -1900,6 +1901,7 @@ function initCompact(){
 function setEssentials(on){
   const enabled = !!on;
   document.body.classList.toggle("essentials", enabled);
+  if (chkEssentialsTop) chkEssentialsTop.checked = enabled;
   if (chkEssentialsQqqTape) chkEssentialsQqqTape.checked = enabled;
   if (enabled) setRightTab("live");
   try { localStorage.setItem(ESSENTIALS_STORAGE_KEY, enabled ? "1" : "0"); } catch {}
@@ -1938,6 +1940,11 @@ function initEssentials(){
   resetTickChart();
   if (chkCompact) {
     chkCompact.addEventListener('change', (e) => setCompact(!!e.target.checked));
+  }
+  if (chkEssentialsTop) {
+    chkEssentialsTop.addEventListener("change", (e) => {
+      setEssentials(!!e.target.checked);
+    });
   }
   if (chkEssentialsQqqTape) {
     chkEssentialsQqqTape.addEventListener("change", (e) => {
