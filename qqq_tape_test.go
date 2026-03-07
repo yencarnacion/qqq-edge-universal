@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -119,4 +120,143 @@ func TestQQQFairValueWeightsLeaderNotionalNotJustDirection(t *testing.T) {
 	if snap.LeaderFlow250 <= 0 {
 		t.Fatalf("leader_flow_250 = %.3f, want positive because buy notional dominates", snap.LeaderFlow250)
 	}
+}
+
+func TestQQQTapeSnapshotRegressionAligned(t *testing.T) {
+	got := runQQQTapeRegressionScenario(t, false)
+	want := qqqTapeMsg{
+		Type:           "qqq_tape",
+		Time:           "10:00:01 ET",
+		Score:          100,
+		Bias:           "Strong Buy",
+		QQQPrice:       500.02,
+		Mid:            500.01,
+		FairValue:      500.1432,
+		FairGapBps:     2.665,
+		FairGapCents:   0.1332,
+		EdgeBps:        5.092,
+		EdgeCents:      0.2546,
+		ExecEdgeBps:    5.092,
+		ExecEdgeCents:  0.2546,
+		SpreadBps:      0.4,
+		LeaderBreadth:  2.665,
+		BasketCoverage: 1,
+		ResidualWeight: 0,
+		TradeImpulse:   1.5,
+		QuoteImbalance: 0.154,
+		MicroEdge:      0.154,
+		LeaderRetBps:   2.665,
+		QQQRetBps:      0,
+		LeadLagGapBps:  2.665,
+		LeaderFlow250:  1,
+		LeaderFlow1000: 1,
+		LeaderFlow3000: 1,
+		QQQFlow250:     1,
+		QQQFlow1000:    1,
+		FreshnessMs:    290,
+		Tradable:       true,
+		Top: []qqqLeaderContribution{
+			{Sym: "AAPL", Weight: 0.55, Score: 4.075, Contribution: 2.241},
+			{Sym: "MSFT", Weight: 0.3, Score: 2.756, Contribution: 0.827},
+			{Sym: "NVDA", Weight: 0.15, Score: 4.905, Contribution: 0.736},
+		},
+		TSUnix: 1772463601300,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("aligned snapshot changed\n got: %+v\nwant: %+v", got, want)
+	}
+}
+
+func TestQQQTapeSnapshotRegressionConflicted(t *testing.T) {
+	got := runQQQTapeRegressionScenario(t, true)
+	want := qqqTapeMsg{
+		Type:           "qqq_tape",
+		Time:           "10:00:01 ET",
+		Score:          70.4,
+		Bias:           "Strong Buy",
+		QQQPrice:       500,
+		Mid:            500.01,
+		FairValue:      500.1432,
+		FairGapBps:     2.665,
+		FairGapCents:   0.1332,
+		EdgeBps:        4.344,
+		EdgeCents:      0.2172,
+		ExecEdgeBps:    4.344,
+		ExecEdgeCents:  0.2172,
+		SpreadBps:      0.4,
+		LeaderBreadth:  2.665,
+		BasketCoverage: 1,
+		ResidualWeight: 0,
+		TradeImpulse:   1.5,
+		QuoteImbalance: -0.538,
+		MicroEdge:      -0.538,
+		LeaderRetBps:   2.665,
+		QQQRetBps:      0,
+		LeadLagGapBps:  2.665,
+		LeaderFlow250:  1,
+		LeaderFlow1000: 1,
+		LeaderFlow3000: 1,
+		QQQFlow250:     -1,
+		QQQFlow1000:    -1,
+		FreshnessMs:    290,
+		Tradable:       false,
+		Top: []qqqLeaderContribution{
+			{Sym: "AAPL", Weight: 0.55, Score: 4.075, Contribution: 2.241},
+			{Sym: "MSFT", Weight: 0.3, Score: 2.756, Contribution: 0.827},
+			{Sym: "NVDA", Weight: 0.15, Score: 4.905, Contribution: 0.736},
+		},
+		TSUnix: 1772463601300,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("conflicted snapshot changed\n got: %+v\nwant: %+v", got, want)
+	}
+}
+
+func runQQQTapeRegressionScenario(t *testing.T, conflictQQQ bool) qqqTapeMsg {
+	t.Helper()
+
+	et := mustET("America/New_York")
+	eng := newQQQTapeEngine(nil, et, []qqqHolding{
+		{Symbol: "AAPL", Weight: 0.55},
+		{Symbol: "MSFT", Weight: 0.30},
+		{Symbol: "NVDA", Weight: 0.15},
+	})
+	base := time.Date(2026, time.March, 2, 10, 0, 0, 0, et)
+
+	qqqBidSize, qqqAskSize := 15.0, 11.0
+	qqqTradePrice := 500.02
+	if conflictQQQ {
+		qqqBidSize, qqqAskSize = 6.0, 20.0
+		qqqTradePrice = 500.00
+	}
+
+	eng.OnQuote(poly.Quote{Sym: "QQQ", Bp: 500.00, Bs: int64(qqqBidSize), Ap: 500.02, As: int64(qqqAskSize), T: base.UnixMilli()})
+	eng.OnQuote(poly.Quote{Sym: "AAPL", Bp: 220.00, Bs: 18, Ap: 220.02, As: 10, T: base.UnixMilli()})
+	eng.OnQuote(poly.Quote{Sym: "MSFT", Bp: 410.00, Bs: 16, Ap: 410.02, As: 11, T: base.UnixMilli()})
+	eng.OnQuote(poly.Quote{Sym: "NVDA", Bp: 900.00, Bs: 14, Ap: 900.04, As: 12, T: base.UnixMilli()})
+
+	eng.OnQuote(poly.Quote{Sym: "AAPL", Bp: 220.09, Bs: 22, Ap: 220.11, As: 9, T: base.Add(900 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(poly.Trade{Sym: "AAPL", P: 220.11, S: 160, T: base.Add(950 * time.Millisecond).UnixMilli()})
+	eng.OnQuote(poly.Quote{Sym: "MSFT", Bp: 410.10, Bs: 18, Ap: 410.12, As: 10, T: base.Add(1000 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(poly.Trade{Sym: "MSFT", P: 410.12, S: 90, T: base.Add(1050 * time.Millisecond).UnixMilli()})
+	eng.OnQuote(poly.Quote{Sym: "NVDA", Bp: 900.52, Bs: 15, Ap: 900.56, As: 11, T: base.Add(1100 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(poly.Trade{Sym: "NVDA", P: 900.56, S: 40, T: base.Add(1150 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(poly.Trade{Sym: "QQQ", P: qqqTradePrice, S: 200, T: base.Add(1200 * time.Millisecond).UnixMilli()})
+
+	nowRecv := base.Add(1300 * time.Millisecond)
+
+	eng.mu.Lock()
+	defer eng.mu.Unlock()
+
+	// Freeze receive times so the snapshot remains deterministic across test runs.
+	eng.qqqQuote.ReceiveTime = base.Add(1250 * time.Millisecond)
+	eng.qqqLastRecvAt = base.Add(1200 * time.Millisecond)
+	eng.leaders["AAPL"].Quote.ReceiveTime = base.Add(900 * time.Millisecond)
+	eng.leaders["AAPL"].LastReceiveAt = base.Add(950 * time.Millisecond)
+	eng.leaders["MSFT"].Quote.ReceiveTime = base.Add(1000 * time.Millisecond)
+	eng.leaders["MSFT"].LastReceiveAt = base.Add(1050 * time.Millisecond)
+	eng.leaders["NVDA"].Quote.ReceiveTime = base.Add(1100 * time.Millisecond)
+	eng.leaders["NVDA"].LastReceiveAt = base.Add(1150 * time.Millisecond)
+
+	return eng.snapshotLocked(nowRecv)
 }
