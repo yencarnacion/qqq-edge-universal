@@ -217,6 +217,16 @@
               <button id="tabRvolBtn" type="button" class="tabBtn" role="tab" aria-controls="alertsWrap" aria-selected="false">RVOL Table</button>
             </div>
             <div class="liveNowCluster">
+              <button
+                id="btnLiveAuto"
+                type="button"
+                class="liveAutoBtn"
+                aria-pressed="false"
+                title="Enable automatic Now refresh every 10 seconds"
+              >
+                <span class="liveAutoLabel">Auto</span>
+                <span id="liveAutoCountdown" class="liveAutoCountdown" hidden>10s</span>
+              </button>
               <span id="liveNowTime" class="liveNowTime" aria-label="Local Anchor Time duplicate">09:30</span>
               <button
                 id="btnLiveNow"

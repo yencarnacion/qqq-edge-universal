@@ -406,6 +406,35 @@ body.qqqMode #qqqTapePanel{
   align-items:center;
   gap:8px;
 }
+.liveAutoBtn{
+  min-width:110px;
+  padding:11px 14px;
+  border-radius:12px;
+  border:1px solid #30517a;
+  background:#162235;
+  color:#dcecff;
+  font-size:15px;
+  font-weight:800;
+  letter-spacing:.2px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  font-variant-numeric:tabular-nums;
+  transition:background-color .12s ease, border-color .12s ease, box-shadow .12s ease, transform .06s ease, color .12s ease;
+}
+.liveAutoLabel{
+  line-height:1;
+}
+.liveAutoCountdown{
+  min-width:2.6ch;
+  padding:3px 7px;
+  border-radius:999px;
+  background:rgba(255, 255, 255, 0.12);
+  color:inherit;
+  font-size:12px;
+  line-height:1;
+}
 .tabRow{ display:flex; gap:8px; flex-wrap:wrap; }
 .tabBtn{
   background:#0f1016;
@@ -445,6 +474,29 @@ body.qqqMode #qqqTapePanel{
   text-align:center;
   letter-spacing:.3px;
   user-select:none;
+}
+.liveAutoBtn:hover,
+.liveAutoBtn:focus-visible{
+  background:#1f5b96;
+  border-color:#8ac9ff;
+  color:#ffffff;
+  box-shadow:0 0 0 1px rgba(138, 201, 255, 0.42), 0 0 22px rgba(35, 102, 170, 0.34);
+}
+.liveAutoBtn.isActive{
+  background:#177344;
+  border-color:#49d391;
+  color:#ffffff;
+  box-shadow:0 0 0 1px rgba(73, 211, 145, 0.2), 0 10px 24px rgba(17, 122, 71, 0.2);
+}
+.liveAutoBtn.isActive:hover,
+.liveAutoBtn.isActive:focus-visible{
+  background:#7e2830;
+  border-color:#ff9ca6;
+  color:#fff5f6;
+  box-shadow:0 0 0 1px rgba(255, 156, 166, 0.42), 0 0 22px rgba(126, 40, 48, 0.34);
+}
+.liveAutoBtn:active{
+  transform:translateY(1px);
 }
 .liveNowBtn:hover,
 .liveNowBtn:focus-visible{
@@ -688,6 +740,7 @@ body.qqqMode #qqqTapePanel{
   .anchor-input-row{ flex-wrap:wrap; }
   .tabHeader{ flex-wrap:wrap; }
   .liveNowCluster{ margin-left:auto; }
+  .liveAutoBtn{ min-width:96px; padding:10px 12px; font-size:14px; }
   .liveNowTime{ min-width:66px; padding:10px 10px; font-size:15px; }
   .liveNowBtn{ min-width:84px; padding:10px 16px; }
   .tickTop{ flex-direction:column; }

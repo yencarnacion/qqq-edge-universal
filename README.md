@@ -140,6 +140,7 @@ For usage guidance, see `qqq-tape-use.md`.
   - `server_port`: UI/API port
   - `rvol.lookback_days`: baseline history depth
   - `ui.chart_opener_base_url`: ticker click target base URL
+  - `ui.auto_now_seconds`: Auto button interval/countdown in seconds
   - `alert.up_sound_file` / `alert.down_sound_file`: directional sounds
 - `qqq-etf-holdings.csv`
   - Used to build the leader basket.

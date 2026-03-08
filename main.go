@@ -63,6 +63,7 @@ type AppConfig struct {
 	} `yaml:"persistence"`
 	UI struct {
 		ChartOpenerBaseURL string `yaml:"chart_opener_base_url"` // default "http://localhost:8081"
+		AutoNowSeconds     int    `yaml:"auto_now_seconds"`      // default 10
 		LiveColors         struct {
 			TinyCapMax    float64 `yaml:"tiny_cap_max"`   // dollars; default 10_000_000
 			IndustryRegex string  `yaml:"industry_regex"` // default "(medical|bio)"
@@ -1684,6 +1685,9 @@ func main() {
 	if cfg.UI.ChartOpenerBaseURL == "" {
 		cfg.UI.ChartOpenerBaseURL = "http://localhost:8081"
 	}
+	if cfg.UI.AutoNowSeconds <= 0 {
+		cfg.UI.AutoNowSeconds = 10
+	}
 
 	watchlistFiles := []string{"watchlist.yaml"}
 	if strings.TrimSpace(*watchlistsRaw) != "" {
@@ -2279,6 +2283,7 @@ func main() {
 				"tiny_cap_max":          cfg.UI.LiveColors.TinyCapMax,
 				"industry_regex":        cfg.UI.LiveColors.IndustryRegex,
 				"chart_opener_base_url": cfg.UI.ChartOpenerBaseURL,
+				"auto_now_seconds":      cfg.UI.AutoNowSeconds,
 			},
 		}
 		rvm.mu.RLock()

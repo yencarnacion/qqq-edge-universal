@@ -29,6 +29,8 @@ const chkLocalLow = document.getElementById("chkLocalLow");
 const chkCompact = document.getElementById("chkCompact"); // NEW
 const chkScalps = document.getElementById("chkScalps");
 const localTimeInput = document.getElementById("localTimeInput");
+const btnLiveAuto = document.getElementById("btnLiveAuto");
+const liveAutoCountdown = document.getElementById("liveAutoCountdown");
 const liveNowTime = document.getElementById("liveNowTime");
 const levelsModeRadios = document.querySelectorAll('input[name="levelsMode"]');
 const sessionQuickBtns = document.querySelectorAll(".sessionQuick");
@@ -111,6 +113,9 @@ const EXTRA_CACHE_MAX = 1200;
 const metaFetchMaxConcurrent = 4;
 let metaFetchInFlight = 0;
 const metaFetchQueue = [];
+let autoNowEnabled = false;
+let autoNowTimerId = 0;
+let autoNowNextAt = 0;
 
 function setBoundedCache(map, key, value, maxSize) {
   map.set(key, value);
@@ -167,7 +172,8 @@ async function getExtra(sym, date, days = 2) {
 let uiConfig = {
   tinyCapMax: 10_000_000,           // $10M
   industryRegex: "(medical|bio)",   // case-insensitive at runtime
-  chartOpenerBaseURL: "http://localhost:8081"
+  chartOpenerBaseURL: "http://localhost:8081",
+  autoNowSeconds: 10
 };
 let industryRe = null;
 function compileIndustryRegex(){
@@ -643,13 +649,105 @@ function isTypingTarget(target) {
   if (el.isContentEditable) return true;
   return !!el.closest("input, textarea, select, button, [contenteditable='true']");
 }
-function triggerNowShortcut() {
-  const btn = document.getElementById("btnLiveNow") || document.querySelector(".localPreset[data-time='now']");
-  if (btn && typeof btn.click === "function") {
-    btn.click();
+function autoNowIntervalMs() {
+  return Math.max(1, Number(uiConfig.autoNowSeconds) || 10) * 1000;
+}
+function formatAutoCountdown(msRemaining) {
+  return `${Math.max(0, Math.ceil(msRemaining / 1000))}s`;
+}
+function syncAutoNowButton() {
+  if (!btnLiveAuto) return;
+  const intervalSeconds = Math.max(1, Number(uiConfig.autoNowSeconds) || 10);
+  btnLiveAuto.classList.toggle("isActive", autoNowEnabled);
+  btnLiveAuto.setAttribute("aria-pressed", autoNowEnabled ? "true" : "false");
+  btnLiveAuto.title = autoNowEnabled
+    ? `Disable automatic Now refresh every ${intervalSeconds} seconds`
+    : `Enable automatic Now refresh every ${intervalSeconds} seconds`;
+  if (!liveAutoCountdown) return;
+  if (!autoNowEnabled) {
+    liveAutoCountdown.hidden = true;
+    liveAutoCountdown.textContent = "";
     return;
   }
+  liveAutoCountdown.hidden = false;
+  liveAutoCountdown.textContent = formatAutoCountdown(Math.max(0, autoNowNextAt - Date.now()));
+}
+function resetAutoNowCountdown() {
+  if (!autoNowEnabled) return;
+  autoNowNextAt = Date.now() + autoNowIntervalMs();
+  syncAutoNowButton();
+}
+function stopAutoNow() {
+  autoNowEnabled = false;
+  autoNowNextAt = 0;
+  if (autoNowTimerId) {
+    window.clearInterval(autoNowTimerId);
+    autoNowTimerId = 0;
+  }
+  syncAutoNowButton();
+}
+function tickAutoNow() {
+  if (!autoNowEnabled) return;
+  const now = Date.now();
+  if (now >= autoNowNextAt) {
+    autoNowNextAt = now + autoNowIntervalMs();
+    syncAutoNowButton();
+    void triggerNowShortcut({ resetAutoCountdown: false });
+    return;
+  }
+  syncAutoNowButton();
+}
+function startAutoNow() {
+  autoNowEnabled = true;
+  autoNowNextAt = Date.now() + autoNowIntervalMs();
+  if (autoNowTimerId) window.clearInterval(autoNowTimerId);
+  autoNowTimerId = window.setInterval(tickAutoNow, 250);
+  syncAutoNowButton();
+}
+function setAutoNow(enabled) {
+  if (enabled) {
+    startAutoNow();
+    showActionFeedback("Auto On");
+    return;
+  }
+  stopAutoNow();
+  showActionFeedback("Auto Off");
+}
+async function applyLocalPresetButton(btn, opts = {}) {
+  if (!btn) return;
+  const sess = (btn.dataset.session || "").trim();
+  const rawTime = String(btn.dataset.time || "").trim().toLowerCase();
+  if (rawTime === "now") {
+    showActionFeedback("Now");
+  }
+  let t = "";
+  if (rawTime === "now") {
+    t = nowHHMMET();
+  } else if (rawTime === "prev_half") {
+    t = halfHourStartET();
+  } else if (rawTime === "prev_hour") {
+    t = hourStartET();
+  } else {
+    t = normalizeHHMM(rawTime);
+  }
+  setLevelsMode("local");
+  if (sess) {
+    const radio = document.querySelector(`input[name="session"][value="${sess}"]`);
+    if (radio) radio.checked = true;
+  }
+  if (t && localTimeInput) localTimeInput.value = t;
+  if (rawTime === "now" && opts.resetAutoCountdown !== false) {
+    resetAutoNowCountdown();
+  }
+  await applyLiveSettings({ resetTick: true });
+}
+function triggerNowShortcut(opts = {}) {
+  const btn = document.getElementById("btnLiveNow") || document.querySelector(".localPreset[data-time='now']");
+  if (btn) {
+    return applyLocalPresetButton(btn, opts);
+  }
   showActionFeedback("Now");
+  if (opts.resetAutoCountdown !== false) resetAutoNowCountdown();
 }
 function nowHHMMET() {
   try {
@@ -1914,7 +2012,11 @@ async function initStatus() {
       if (typeof j.ui.chart_opener_base_url === "string" && j.ui.chart_opener_base_url.trim() !== "") {
         uiConfig.chartOpenerBaseURL = j.ui.chart_opener_base_url.trim();
       }
+      if (typeof j.ui.auto_now_seconds === "number" && isFinite(j.ui.auto_now_seconds) && j.ui.auto_now_seconds > 0) {
+        uiConfig.autoNowSeconds = Math.max(1, Math.round(j.ui.auto_now_seconds));
+      }
       compileIndustryRegex();
+      syncAutoNowButton();
     }
     applyQQQMode(!!j?.qqq_mode);
   } catch {
@@ -1988,6 +2090,7 @@ function initEssentials(){
   initCompact();
   initRightTabs();
   initEssentials();
+  syncAutoNowButton();
   syncTickModeUI();
   resetQQQTapeChart();
   resetTickChart();
@@ -2149,29 +2252,13 @@ function initEssentials(){
   if (localPresetBtns && localPresetBtns.length > 0) {
     localPresetBtns.forEach(btn => {
       btn.addEventListener("click", async () => {
-        const sess = (btn.dataset.session || "").trim();
-        const rawTime = String(btn.dataset.time || "").trim().toLowerCase();
-        if (rawTime === "now") {
-          showActionFeedback("Now");
-        }
-        let t = "";
-        if (rawTime === "now") {
-          t = nowHHMMET();
-        } else if (rawTime === "prev_half") {
-          t = halfHourStartET();
-        } else if (rawTime === "prev_hour") {
-          t = hourStartET();
-        } else {
-          t = normalizeHHMM(rawTime);
-        }
-        setLevelsMode("local");
-        if (sess) {
-          const radio = document.querySelector(`input[name="session"][value="${sess}"]`);
-          if (radio) radio.checked = true;
-        }
-        if (t && localTimeInput) localTimeInput.value = t;
-        await applyLiveSettings({ resetTick: true });
+        await applyLocalPresetButton(btn);
       });
+    });
+  }
+  if (btnLiveAuto) {
+    btnLiveAuto.addEventListener("click", () => {
+      setAutoNow(!autoNowEnabled);
     });
   }
   // NEW RVOL control listeners
