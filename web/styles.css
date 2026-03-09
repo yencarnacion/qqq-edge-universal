@@ -407,8 +407,8 @@ body.qqqMode #qqqTapePanel{
   gap:8px;
 }
 .tapePaceIndicator{
-  min-width:108px;
-  padding:8px 12px;
+  min-width:132px;
+  padding:9px 13px;
   border-radius:12px;
   border:1px solid #303949;
   background:#111826;
@@ -425,21 +425,23 @@ body.qqqMode #qqqTapePanel{
 }
 .tapePaceLabel{
   grid-area:label;
-  font-size:11px;
+  font-size:16px;
   font-weight:900;
-  letter-spacing:.45px;
-  text-transform:uppercase;
+  letter-spacing:.2px;
   color:#dce6f4;
+  line-height:1;
 }
 .tapePaceWindow{
   grid-area:window;
-  font-size:12px;
-  color:#94a3b8;
+  font-size:16px;
+  font-weight:800;
+  color:#b8c5d8;
+  line-height:1;
 }
 .tapePaceCount{
   grid-area:count;
   justify-self:end;
-  font-size:28px;
+  font-size:34px;
   font-weight:900;
   line-height:1;
   color:#d7dee9;
@@ -814,8 +816,10 @@ body.qqqMode #qqqTapePanel{
   .anchor-input-row{ flex-wrap:wrap; }
   .tabHeader{ flex-wrap:wrap; }
   .liveNowCluster{ margin-left:auto; }
-  .tapePaceIndicator{ min-width:100px; padding:8px 10px; }
-  .tapePaceCount{ font-size:24px; }
+  .tapePaceIndicator{ min-width:122px; padding:8px 10px; }
+  .tapePaceLabel,
+  .tapePaceWindow{ font-size:15px; }
+  .tapePaceCount{ font-size:30px; }
   .liveAutoBtn{ min-width:96px; padding:10px 12px; font-size:14px; }
   .liveNowTime{ min-width:66px; padding:10px 10px; font-size:15px; }
   .liveNowBtn{ min-width:84px; padding:10px 16px; }

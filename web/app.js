@@ -692,10 +692,13 @@ function refreshTapePaceIndicator(nowMs = Date.now()) {
 function rebuildTapePaceEvents(alerts) {
   tapePaceEventsMs = [];
   const items = Array.isArray(alerts) ? alerts : [];
+  const nowMs = Date.now();
+  const windowMs = tapePaceWindowMs();
   for (const alertObj of items) {
     if (!isTapePaceKind(alertObj?.kind)) continue;
     const tsMs = Number(alertObj?.ts_unix);
     if (!Number.isFinite(tsMs) || tsMs <= 0) continue;
+    if (nowMs-tsMs > windowMs || tsMs > nowMs) continue;
     tapePaceEventsMs.push(tsMs);
   }
   tapePaceEventsMs.sort((a, b) => a - b);
@@ -703,9 +706,7 @@ function rebuildTapePaceEvents(alerts) {
 }
 function recordTapePaceEvent(alertObj) {
   if (!isTapePaceKind(alertObj?.kind)) return;
-  const tsMs = Number(alertObj?.ts_unix);
-  if (!Number.isFinite(tsMs) || tsMs <= 0) return;
-  tapePaceEventsMs.push(tsMs);
+  tapePaceEventsMs.push(Date.now());
   refreshTapePaceIndicator();
 }
 function formatAutoCountdown(msRemaining) {
