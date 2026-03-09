@@ -122,6 +122,13 @@ let autoNowTimerId = 0;
 let autoNowNextAt = 0;
 let tapePaceTimerId = 0;
 let tapePaceEventsMs = [];
+let autoNowLastEnabled = null;
+let autoNowLastIntervalSeconds = 0;
+let autoNowLastCountdown = "";
+let tapePaceLastState = "";
+let tapePaceLastCount = -1;
+let tapePaceLastWindowSeconds = 0;
+let tapePaceLastTitle = "";
 
 function setBoundedCache(map, key, value, maxSize) {
   map.set(key, value);
@@ -695,7 +702,11 @@ function tapePaceEventTimeMs(alertObj) {
 }
 function pruneTapePaceEvents(nowMs = Date.now()) {
   const cutoff = nowMs - tapePaceWindowMs();
-  tapePaceEventsMs = tapePaceEventsMs.filter(tsMs => tsMs >= cutoff);
+  let firstValidIdx = 0;
+  while (firstValidIdx < tapePaceEventsMs.length && tapePaceEventsMs[firstValidIdx] < cutoff) {
+    firstValidIdx += 1;
+  }
+  if (firstValidIdx > 0) tapePaceEventsMs.splice(0, firstValidIdx);
 }
 function tapePaceState(count, windowSeconds) {
   const ratePerMinute = count * (60 / Math.max(1, windowSeconds));
@@ -707,18 +718,40 @@ function tapePaceState(count, windowSeconds) {
 }
 function refreshTapePaceIndicator(nowMs = Date.now()) {
   if (!tapePaceIndicator || !tapePaceCountEl || !tapePaceWindowEl) return;
+  if (tapePaceTimerId) {
+    window.clearTimeout(tapePaceTimerId);
+    tapePaceTimerId = 0;
+  }
   pruneTapePaceEvents(nowMs);
   const windowSeconds = Math.max(1, Number(uiConfig.paceOfTapeWindowSeconds) || 60);
   const count = tapePaceEventsMs.length;
   const state = tapePaceState(count, windowSeconds);
   const info = tickModeInfo();
   const modeLabel = info.label;
-  tapePaceIndicator.dataset.state = state;
-  tapePaceCountEl.textContent = String(count);
-  tapePaceWindowEl.textContent = `${windowSeconds}s`;
   const title = `${count} ${modeLabel} alerts changed breakout breadth in the last ${windowSeconds} seconds`;
-  tapePaceIndicator.title = title;
-  tapePaceIndicator.setAttribute("aria-label", `Pace of tape ${state}: ${title}`);
+  if (tapePaceLastState !== state) {
+    tapePaceIndicator.dataset.state = state;
+    tapePaceLastState = state;
+  }
+  if (tapePaceLastCount !== count) {
+    tapePaceCountEl.textContent = String(count);
+    tapePaceLastCount = count;
+  }
+  if (tapePaceLastWindowSeconds !== windowSeconds) {
+    tapePaceWindowEl.textContent = `${windowSeconds}s`;
+    tapePaceLastWindowSeconds = windowSeconds;
+  }
+  if (tapePaceLastTitle !== title) {
+    tapePaceIndicator.title = title;
+    tapePaceIndicator.setAttribute("aria-label", `Pace of tape ${state}: ${title}`);
+    tapePaceLastTitle = title;
+  }
+  if (count <= 0) return;
+  const nextExpiryAt = tapePaceEventsMs[0] + tapePaceWindowMs();
+  const delayMs = Math.max(50, nextExpiryAt - nowMs);
+  tapePaceTimerId = window.setTimeout(() => {
+    refreshTapePaceIndicator();
+  }, delayMs);
 }
 function rebuildTapePaceEvents(alerts) {
   tapePaceEventsMs = [];
@@ -743,39 +776,77 @@ function recordTapePaceEvent(alertObj) {
   if (!isTapePaceKind(alertObj?.kind)) return;
   const transition = applyBreakoutTransition(alertObj, tapePaceDirsBySymbol);
   if (!transition) return;
-  tapePaceEventsMs.push(tapePaceEventTimeMs(alertObj));
-  refreshTapePaceIndicator();
+  const nowMs = Date.now();
+  const tsMs = tapePaceEventTimeMs(alertObj);
+  if (tsMs > nowMs) return;
+  tapePaceEventsMs.push(tsMs);
+  if (tapePaceEventsMs.length > 1 && tsMs < tapePaceEventsMs[tapePaceEventsMs.length - 2]) {
+    tapePaceEventsMs.sort((a, b) => a - b);
+  }
+  refreshTapePaceIndicator(nowMs);
 }
 function formatAutoCountdown(msRemaining) {
   return `${Math.max(0, Math.ceil(msRemaining / 1000))}s`;
 }
-function syncAutoNowButton() {
+function autoNowCountdownDelayMs(nowMs = Date.now()) {
+  const remainingMs = autoNowNextAt - nowMs;
+  if (remainingMs <= 0) return 0;
+  const secondsShown = Math.max(1, Math.ceil(remainingMs / 1000));
+  return Math.max(50, remainingMs - ((secondsShown - 1) * 1000));
+}
+function scheduleAutoNowTick(nowMs = Date.now()) {
+  if (autoNowTimerId) {
+    window.clearTimeout(autoNowTimerId);
+    autoNowTimerId = 0;
+  }
+  if (!autoNowEnabled) return;
+  const delayMs = autoNowNextAt <= nowMs ? 0 : autoNowCountdownDelayMs(nowMs);
+  autoNowTimerId = window.setTimeout(() => {
+    tickAutoNow();
+  }, delayMs);
+}
+function syncAutoNowButton(nowMs = Date.now()) {
   if (!btnLiveAuto) return;
   const intervalSeconds = Math.max(1, Number(uiConfig.autoNowSeconds) || 10);
-  btnLiveAuto.classList.toggle("isActive", autoNowEnabled);
-  btnLiveAuto.setAttribute("aria-pressed", autoNowEnabled ? "true" : "false");
-  btnLiveAuto.title = autoNowEnabled
-    ? `Disable automatic Now refresh every ${intervalSeconds} seconds`
-    : `Enable automatic Now refresh every ${intervalSeconds} seconds`;
+  const enabledChanged = autoNowLastEnabled !== autoNowEnabled;
+  if (enabledChanged) {
+    btnLiveAuto.classList.toggle("isActive", autoNowEnabled);
+    btnLiveAuto.setAttribute("aria-pressed", autoNowEnabled ? "true" : "false");
+    autoNowLastEnabled = autoNowEnabled;
+  }
+  if (enabledChanged || autoNowLastIntervalSeconds !== intervalSeconds) {
+    btnLiveAuto.title = autoNowEnabled
+      ? `Disable automatic Now refresh every ${intervalSeconds} seconds`
+      : `Enable automatic Now refresh every ${intervalSeconds} seconds`;
+    autoNowLastIntervalSeconds = intervalSeconds;
+  }
   if (!liveAutoCountdown) return;
   if (!autoNowEnabled) {
-    liveAutoCountdown.hidden = true;
-    liveAutoCountdown.textContent = "";
+    if (!liveAutoCountdown.hidden) liveAutoCountdown.hidden = true;
+    if (autoNowLastCountdown !== "") {
+      liveAutoCountdown.textContent = "";
+      autoNowLastCountdown = "";
+    }
     return;
   }
-  liveAutoCountdown.hidden = false;
-  liveAutoCountdown.textContent = formatAutoCountdown(Math.max(0, autoNowNextAt - Date.now()));
+  if (liveAutoCountdown.hidden) liveAutoCountdown.hidden = false;
+  const countdownText = formatAutoCountdown(Math.max(0, autoNowNextAt - nowMs));
+  if (autoNowLastCountdown !== countdownText) {
+    liveAutoCountdown.textContent = countdownText;
+    autoNowLastCountdown = countdownText;
+  }
 }
 function resetAutoNowCountdown() {
   if (!autoNowEnabled) return;
   autoNowNextAt = Date.now() + autoNowIntervalMs();
   syncAutoNowButton();
+  scheduleAutoNowTick();
 }
 function stopAutoNow() {
   autoNowEnabled = false;
   autoNowNextAt = 0;
   if (autoNowTimerId) {
-    window.clearInterval(autoNowTimerId);
+    window.clearTimeout(autoNowTimerId);
     autoNowTimerId = 0;
   }
   syncAutoNowButton();
@@ -785,18 +856,19 @@ function tickAutoNow() {
   const now = Date.now();
   if (now >= autoNowNextAt) {
     autoNowNextAt = now + autoNowIntervalMs();
-    syncAutoNowButton();
+    syncAutoNowButton(now);
+    scheduleAutoNowTick(now);
     void triggerNowShortcut({ resetAutoCountdown: false });
     return;
   }
-  syncAutoNowButton();
+  syncAutoNowButton(now);
+  scheduleAutoNowTick(now);
 }
 function startAutoNow() {
   autoNowEnabled = true;
   autoNowNextAt = Date.now() + autoNowIntervalMs();
-  if (autoNowTimerId) window.clearInterval(autoNowTimerId);
-  autoNowTimerId = window.setInterval(tickAutoNow, 250);
   syncAutoNowButton();
+  scheduleAutoNowTick();
 }
 function setAutoNow(enabled) {
   if (enabled) {
@@ -2184,9 +2256,12 @@ function initEssentials(){
   initEssentials();
   syncAutoNowButton();
   refreshTapePaceIndicator();
-  tapePaceTimerId = window.setInterval(() => {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    if (autoNowEnabled) tickAutoNow();
+    else syncAutoNowButton();
     refreshTapePaceIndicator();
-  }, 250);
+  });
   syncTickModeUI();
   resetQQQTapeChart();
   resetTickChart();
