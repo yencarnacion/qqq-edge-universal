@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -154,6 +155,13 @@ func copyStringSliceMap(in map[string][]string) map[string][]string {
 	}
 	return out
 }
+
+const (
+	defaultMassiveHTTPTimeout   = 20 * time.Second
+	defaultSeedRequestTimeout   = 90 * time.Second
+	defaultRvolBackfillTimeout  = 90 * time.Second
+	defaultWarmupMaxParallelism = 3
+)
 
 func appendUniqueString(slice []string, v string) []string {
 	if v == "" {
@@ -844,8 +852,8 @@ func newRvolManager(cfg AppConfig, et *time.Location, polygonKey string, h *hub)
 		cfg:          cfg,
 		et:           et,
 		polygonKey:   polygonKey,
-		httpClient:   &http.Client{Timeout: 10 * time.Second},
-		rest:         massiverest.NewWithClient(polygonKey, &http.Client{Timeout: 10 * time.Second}),
+		httpClient:   &http.Client{Timeout: defaultMassiveHTTPTimeout},
+		rest:         massiverest.NewWithClient(polygonKey, &http.Client{Timeout: defaultMassiveHTTPTimeout}),
 		threshold:    cfg.Rvol.DefaultThreshold,
 		method:       rvolpkg.Method(strings.ToUpper(strings.TrimSpace(cfg.Rvol.DefaultMethod))),
 		baselineMode: strings.ToLower(strings.TrimSpace(cfg.Rvol.BaselineMode)),
@@ -981,10 +989,8 @@ func (m *rvolManager) setSession(date time.Time, sess SessionType) {
 	m.mu.Unlock()
 }
 func (m *rvolManager) loadBaselines(symbols []string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-	// Limit parallel backfills to avoid rate limits / GOAWAYs
-	maxParallel := 5
+	// Limit parallel backfills to avoid rate limits and per-request timeout bursts.
+	maxParallel := defaultWarmupMaxParallelism
 	sem := make(chan struct{}, maxParallel)
 	wg := sync.WaitGroup{}
 	for _, s := range symbols {
@@ -997,13 +1003,19 @@ func (m *rvolManager) loadBaselines(symbols []string) {
 
 			base := time.Second
 			for attempt := 0; attempt < 3; attempt++ {
-				b, err := rvolpkg.Backfill(ctx, m.httpClient, m.polygonKey, s, m.anchorDate, m.cfg.Rvol.LookbackDays, m.et)
+				symCtx, cancel := context.WithTimeout(context.Background(), defaultRvolBackfillTimeout)
+				b, err := rvolpkg.Backfill(symCtx, m.httpClient, m.polygonKey, s, m.anchorDate, m.cfg.Rvol.LookbackDays, m.et)
+				cancel()
 				if err != nil {
-					if ctx.Err() != nil {
+					if errors.Is(err, context.Canceled) {
 						return
 					}
 					if attempt == 2 {
-						log.Printf("[rvol] backfill %s failed after retries: %v", s, err)
+						if errors.Is(err, context.DeadlineExceeded) {
+							log.Printf("[rvol] backfill %s timed out after retries: %v", s, err)
+						} else {
+							log.Printf("[rvol] backfill %s failed after retries: %v", s, err)
+						}
 						return
 					}
 					sleep := base * (1 << attempt)
@@ -1252,7 +1264,7 @@ func parseRFC3339Maybe(s string) time.Time {
 	return time.Time{}
 }
 
-var httpClient = &http.Client{Timeout: 8 * time.Second}
+var httpClient = &http.Client{Timeout: defaultMassiveHTTPTimeout}
 
 type NewsItem struct {
 	Title     string `json:"title"`
@@ -1475,12 +1487,12 @@ func seedSessionHiLo(et *time.Location, polygonKey string, symbols []string, nam
 		// Nothing to seed (e.g., starting before the session anchor)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultSeedRequestTimeout)
 	defer cancel()
 
 	rest := massiverest.NewWithClient(polygonKey, httpClient)
 
-	maxParallel := 5
+	maxParallel := defaultWarmupMaxParallelism
 	sem := make(chan struct{}, maxParallel)
 	wg := sync.WaitGroup{}
 
@@ -1563,12 +1575,12 @@ func seedScalpVWAP(
 	if !sessStartET.Before(nowET) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultSeedRequestTimeout)
 	defer cancel()
 
 	rest := massiverest.NewWithClient(polygonKey, httpClient)
 
-	maxParallel := 5
+	maxParallel := defaultWarmupMaxParallelism
 	sem := make(chan struct{}, maxParallel)
 	var wg sync.WaitGroup
 

@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	defaultWS = "wss://socket.massive.com/stocks"
+	defaultWS               = "wss://socket.massive.com/stocks"
+	maxSubscriptionParamLen = 1024
 )
 
 type Trade struct {
@@ -161,12 +162,7 @@ func (b *Broker) Subscribe(symbol string, kinds StreamKinds) *Subscription {
 	b.mu.Unlock()
 
 	if !added.empty() {
-		if msg, ok := subscribeMsgForKinds(s, added); ok {
-			select {
-			case b.outbound <- msg:
-			default:
-			}
-		}
+		b.enqueueWSMsgs(batchWSMsgs("subscribe", paramsListForKinds(s, added)))
 	}
 	return sub
 }
@@ -203,12 +199,7 @@ func (b *Broker) Unsubscribe(sub *Subscription) {
 	b.mu.Unlock()
 
 	if !removed.empty() {
-		if msg, ok := unsubscribeMsgForKinds(sub.Symbol, removed); ok {
-			select {
-			case b.outbound <- msg:
-			default:
-			}
-		}
+		b.enqueueWSMsgs(batchWSMsgs("unsubscribe", paramsListForKinds(sub.Symbol, removed)))
 	}
 }
 
@@ -217,25 +208,36 @@ type wsMsg struct {
 	Params string `json:"params,omitempty"`
 }
 
+type statusEvent struct {
+	Ev      string `json:"ev"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	Error   string `json:"error"`
+}
+
 func authMsg(key string) wsMsg { return wsMsg{Action: "auth", Params: key} }
 
 func subscribeMsgForKinds(sym string, kinds StreamKinds) (wsMsg, bool) {
-	params := paramsForKinds(sym, kinds)
-	if params == "" {
+	msgs := batchWSMsgs("subscribe", paramsListForKinds(sym, kinds))
+	if len(msgs) == 0 {
 		return wsMsg{}, false
 	}
-	return wsMsg{Action: "subscribe", Params: params}, true
+	return msgs[0], true
 }
 
 func unsubscribeMsgForKinds(sym string, kinds StreamKinds) (wsMsg, bool) {
-	params := paramsForKinds(sym, kinds)
-	if params == "" {
+	msgs := batchWSMsgs("unsubscribe", paramsListForKinds(sym, kinds))
+	if len(msgs) == 0 {
 		return wsMsg{}, false
 	}
-	return wsMsg{Action: "unsubscribe", Params: params}, true
+	return msgs[0], true
 }
 
 func paramsForKinds(sym string, kinds StreamKinds) string {
+	return strings.Join(paramsListForKinds(sym, kinds), ",")
+}
+
+func paramsListForKinds(sym string, kinds StreamKinds) []string {
 	parts := make([]string, 0, 3)
 	if kinds.Trades {
 		parts = append(parts, "T."+sym)
@@ -246,7 +248,134 @@ func paramsForKinds(sym string, kinds StreamKinds) string {
 	if kinds.Quotes {
 		parts = append(parts, "Q."+sym)
 	}
-	return strings.Join(parts, ",")
+	return parts
+}
+
+func batchWSMsgs(action string, params []string) []wsMsg {
+	params = compactStrings(params)
+	if len(params) == 0 {
+		return nil
+	}
+
+	msgs := make([]wsMsg, 0, (len(params)+15)/16)
+	curr := make([]string, 0, 16)
+	currLen := 0
+	flush := func() {
+		if len(curr) == 0 {
+			return
+		}
+		msgs = append(msgs, wsMsg{Action: action, Params: strings.Join(curr, ",")})
+		curr = curr[:0]
+		currLen = 0
+	}
+	for _, param := range params {
+		addLen := len(param)
+		if len(curr) > 0 {
+			addLen++
+		}
+		if len(curr) > 0 && currLen+addLen > maxSubscriptionParamLen {
+			flush()
+		}
+		curr = append(curr, param)
+		currLen += len(param)
+		if len(curr) > 1 {
+			currLen++
+		}
+	}
+	flush()
+	return msgs
+}
+
+func compactStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := in[:0]
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func (b *Broker) currentSubscriptionMessages() []wsMsg {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	params := make([]string, 0, len(b.subscribed)*3)
+	for sym, kinds := range b.subscribed {
+		params = append(params, paramsListForKinds(sym, kinds)...)
+	}
+	return batchWSMsgs("subscribe", params)
+}
+
+func (b *Broker) enqueueWSMsgs(msgs []wsMsg) {
+	for _, msg := range msgs {
+		select {
+		case b.outbound <- msg:
+		default:
+		}
+	}
+}
+
+func parseStatusEvent(raw json.RawMessage) (statusEvent, bool) {
+	var st statusEvent
+	if err := json.Unmarshal(raw, &st); err != nil {
+		return statusEvent{}, false
+	}
+	return st, st.Ev == "status"
+}
+
+func (b *Broker) logStatus(st statusEvent) {
+	status := strings.TrimSpace(st.Status)
+	message := strings.TrimSpace(st.Message)
+	errText := strings.TrimSpace(st.Error)
+	switch {
+	case status == "" && message == "" && errText == "":
+		return
+	case errText != "":
+		log.Printf("[polygon] status=%s message=%s error=%s", status, message, errText)
+	case message != "":
+		log.Printf("[polygon] status=%s message=%s", status, message)
+	default:
+		log.Printf("[polygon] status=%s", status)
+	}
+}
+
+func (b *Broker) awaitAuth(conn *websocket.Conn) error {
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	defer func() {
+		_ = conn.SetReadDeadline(time.Time{})
+	}()
+	for {
+		var msgs []json.RawMessage
+		if err := conn.ReadJSON(&msgs); err != nil {
+			return fmt.Errorf("auth read: %w", err)
+		}
+		for _, raw := range msgs {
+			st, ok := parseStatusEvent(raw)
+			if !ok {
+				continue
+			}
+			b.logStatus(st)
+			switch strings.ToLower(strings.TrimSpace(st.Status)) {
+			case "auth_success", "authenticated":
+				return nil
+			case "auth_failed", "error":
+				msg := strings.TrimSpace(st.Message)
+				if msg == "" {
+					msg = strings.TrimSpace(st.Error)
+				}
+				if msg == "" {
+					msg = "authentication failed"
+				}
+				return fmt.Errorf(msg)
+			}
+		}
+	}
 }
 
 func (b *Broker) Run(ctx context.Context) error {
@@ -285,15 +414,16 @@ func (b *Broker) runOnce(ctx context.Context) error {
 	if err := conn.WriteJSON(authMsg(b.apiKey)); err != nil {
 		return fmt.Errorf("auth write: %w", err)
 	}
+	if err := b.awaitAuth(conn); err != nil {
+		return err
+	}
 
-	// ask for current subscriptions
-	b.mu.RLock()
-	for s, kinds := range b.subscribed {
-		if msg, ok := subscribeMsgForKinds(s, kinds); ok {
-			_ = conn.WriteJSON(msg)
+	// ask for current subscriptions in batches after auth is acknowledged
+	for _, msg := range b.currentSubscriptionMessages() {
+		if err := conn.WriteJSON(msg); err != nil {
+			return fmt.Errorf("subscribe write: %w", err)
 		}
 	}
-	b.mu.RUnlock()
 
 	// ping
 	ping := time.NewTicker(45 * time.Second)
@@ -329,8 +459,12 @@ func (b *Broker) runOnce(ctx context.Context) error {
 					if err := json.Unmarshal(raw, &a); err == nil {
 						b.dispatchAM(a)
 					}
+				case "status":
+					if st, ok := parseStatusEvent(raw); ok {
+						b.logStatus(st)
+					}
 				default:
-					// ignore "status" and others
+					// ignore other provider messages
 				}
 			}
 		}
@@ -419,10 +553,5 @@ func (b *Broker) RemoveSymbol(symbol string) {
 	if prev.empty() {
 		return
 	}
-	if msg, ok := unsubscribeMsgForKinds(s, prev); ok {
-		select {
-		case b.outbound <- msg:
-		default:
-		}
-	}
+	b.enqueueWSMsgs(batchWSMsgs("unsubscribe", paramsListForKinds(s, prev)))
 }
