@@ -376,12 +376,6 @@ button:hover{ filter:brightness(1.06); }
 body.essentials .container{
   margin:12px;
 }
-body.essentials .topbar{
-  display:none;
-}
-body.essentials .panel.controls{
-  display:none;
-}
 body.essentials .split{
   grid-template-columns: 1fr;
   margin-top:0;

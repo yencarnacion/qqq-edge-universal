@@ -371,6 +371,15 @@ func parseAlertSource(raw string) (alertSource, error) {
 	}
 }
 
+func watchSubscriptionKinds(source alertSource) marketdata.StreamKinds {
+	switch normalizeAlertSource(source) {
+	case alertSourceNBBO:
+		return marketdata.StreamKinds{Quotes: true}
+	default:
+		return marketdata.StreamKinds{Trades: true}
+	}
+}
+
 type historyMsg struct {
 	Type   string     `json:"type"`
 	Alerts []alertMsg `json:"alerts"`
@@ -1041,8 +1050,8 @@ func main() {
 		return currentDate, localAnchorClock, localAlertsOn, currentSource
 	}
 
-	startWatchConsumer := func(ctx context.Context, sym string) *marketdata.Subscription {
-		sub := broker.Subscribe(sym, marketdata.StreamKinds{Trades: true, Quotes: true})
+	startWatchConsumer := func(ctx context.Context, sym string, source alertSource) *marketdata.Subscription {
+		sub := broker.Subscribe(sym, watchSubscriptionKinds(source))
 		if sub == nil {
 			return nil
 		}
@@ -1073,6 +1082,30 @@ func main() {
 			}
 		}(sym, sub)
 		return sub
+	}
+
+	syncWatchSubscriptions := func(source alertSource) {
+		if broker == nil || streamCtx == nil {
+			return
+		}
+		symbols, _, _ := getWatchSnapshot()
+		next := make(map[string]*marketdata.Subscription, len(symbols))
+
+		subsMu.Lock()
+		for _, sym := range symbols {
+			if sub, ok := watchSubs[sym]; ok {
+				broker.Unsubscribe(sub)
+			}
+			next[sym] = startWatchConsumer(streamCtx, sym, source)
+		}
+		for sym, sub := range watchSubs {
+			if _, ok := next[sym]; ok {
+				continue
+			}
+			broker.Unsubscribe(sub)
+		}
+		watchSubs = next
+		subsMu.Unlock()
 	}
 
 	startTapeConsumer := func(ctx context.Context, sym string) *marketdata.Subscription {
@@ -1245,14 +1278,12 @@ func main() {
 
 			subsMu.Lock()
 			watchSubs = make(map[string]*marketdata.Subscription)
-			for _, sym := range streamSymbols {
-				watchSubs[sym] = startWatchConsumer(streamCtx, sym)
-			}
 			tapeSubs = make(map[string]*marketdata.Subscription)
 			for _, sym := range qqqTape.Symbols() {
 				tapeSubs[sym] = startTapeConsumer(streamCtx, sym)
 			}
 			subsMu.Unlock()
+			syncWatchSubscriptions(prevSource)
 
 			go func() {
 				if err := broker.Run(streamCtx); err != nil && streamCtx.Err() == nil {
@@ -1303,6 +1334,7 @@ func main() {
 		if eng != nil {
 			eng.setSource(source)
 		}
+		syncWatchSubscriptions(source)
 
 		msg := alertSourceMsg{Type: "alert_source", Source: source.String()}
 		h.broadcast(msg)
@@ -1423,19 +1455,8 @@ func main() {
 			}
 		}
 		if broker != nil {
-			subsMu.Lock()
-			for _, s := range added {
-				if _, ok := watchSubs[s]; !ok {
-					watchSubs[s] = startWatchConsumer(streamCtx, s)
-				}
-			}
-			for _, s := range removed {
-				if sub, ok := watchSubs[s]; ok {
-					broker.Unsubscribe(sub)
-					delete(watchSubs, s)
-				}
-			}
-			subsMu.Unlock()
+			_, _, _, source := readState()
+			syncWatchSubscriptions(source)
 		}
 
 		status := fmt.Sprintf("Watchlists reloaded (%d files): +%d / -%d (kept %d)", len(watchlistFiles), len(added), len(removed), len(kept))

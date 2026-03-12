@@ -324,6 +324,38 @@ func TestOdEngineCanSwitchBetweenTradesAndNBBOWithoutReset(t *testing.T) {
 	}
 }
 
+func TestWatchSubscriptionKindsFollowActiveAlertSource(t *testing.T) {
+	tests := []struct {
+		name   string
+		source alertSource
+		want   marketdata.StreamKinds
+	}{
+		{
+			name:   "trades",
+			source: alertSourceTrades,
+			want:   marketdata.StreamKinds{Trades: true},
+		},
+		{
+			name:   "nbbo",
+			source: alertSourceNBBO,
+			want:   marketdata.StreamKinds{Quotes: true},
+		},
+		{
+			name:   "default",
+			source: alertSource("unexpected"),
+			want:   marketdata.StreamKinds{Trades: true},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := watchSubscriptionKinds(tc.source); got != tc.want {
+				t.Fatalf("watchSubscriptionKinds(%q) = %#v, want %#v", tc.source, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeClockHelpers(t *testing.T) {
 	clockTests := []struct {
 		in     string
