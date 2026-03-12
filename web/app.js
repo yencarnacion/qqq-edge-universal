@@ -438,7 +438,9 @@ function addIncomingAlert(a) {
     allAlerts = allAlerts.slice(0, HISTORY_LIMIT);
   }
   renderAll();
-  playCurrentAlertSound(a.kind);
+  if (alertVisible(a.kind)) {
+    playCurrentAlertSound(a.kind);
+  }
 }
 
 function autoNowIntervalSeconds() {
