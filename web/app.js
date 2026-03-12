@@ -54,7 +54,6 @@ const CURRENT_SOUNDS_STORAGE_KEY = "qqq-edge-universal.current_sounds";
 const SYNTH_SOUNDS_STORAGE_KEY = "qqq-edge-universal.synth_sounds";
 const HISTORY_LIMIT = 200;
 const LIVE_LIMIT = 30;
-const BREAKOUT_SOUND_GAP_MS = 110;
 
 let ws = null;
 let streamRunning = false;
@@ -78,8 +77,6 @@ let tickDirsBySymbol = new Map();
 let tapePaceDirsBySymbol = new Map();
 let tapePaceEventsMs = [];
 let breakoutBreadthResetAtMs = 0;
-let breakoutSoundQueue = [];
-let breakoutSoundTimerId = 0;
 
 function setStatus(text, ok = false) {
   statusPill.textContent = text;
@@ -381,51 +378,6 @@ function alertTimeMs(a) {
   return Number.isFinite(ts) && ts > 0 ? ts : Date.now();
 }
 
-function breakoutBreadthTransitionForSound(a) {
-  if (!alertShown(a)) return null;
-  if (alertTimeMs(a) < breakoutBreadthResetAtMs) return null;
-  return applyBreakoutTransition(a, tickDirsBySymbol);
-}
-
-function clearBreakoutSoundQueue() {
-  breakoutSoundQueue = [];
-  if (breakoutSoundTimerId) {
-    window.clearTimeout(breakoutSoundTimerId);
-    breakoutSoundTimerId = 0;
-  }
-}
-
-function drainBreakoutSoundQueue() {
-  breakoutSoundTimerId = 0;
-  if (!canPlayCurrentSounds()) {
-    clearBreakoutSoundQueue();
-    return;
-  }
-  const dir = breakoutSoundQueue.shift();
-  if (!dir) return;
-  if (dir === "down") {
-    playDownSound();
-  } else {
-    playUpSound();
-  }
-  if (breakoutSoundQueue.length > 0) {
-    breakoutSoundTimerId = window.setTimeout(drainBreakoutSoundQueue, BREAKOUT_SOUND_GAP_MS);
-  }
-}
-
-function playBreakoutBreadthChangeSound(transition) {
-  const delta = Number(transition?.delta || 0);
-  if (!Number.isFinite(delta) || delta === 0 || !canPlayCurrentSounds()) return;
-  const dir = delta < 0 ? "down" : "up";
-  for (let i = 0; i < Math.abs(delta); i += 1) {
-    breakoutSoundQueue.push(dir);
-  }
-  if (breakoutSoundTimerId) {
-    return;
-  }
-  drainBreakoutSoundQueue();
-}
-
 function updateBreakoutBreadthReadout(total) {
   if (tickValueEl) {
     tickValueEl.textContent = `${total > 0 ? "+" : ""}${total}`;
@@ -506,13 +458,14 @@ function startTapePaceTimer() {
 
 function addIncomingAlert(a) {
   if (!a || !a.kind || !a.sym) return;
-  const breadthTransition = breakoutBreadthTransitionForSound(a);
   allAlerts.unshift(a);
   if (allAlerts.length > HISTORY_LIMIT) {
     allAlerts = allAlerts.slice(0, HISTORY_LIMIT);
   }
   renderAll();
-  playBreakoutBreadthChangeSound(breadthTransition);
+  if (alertShown(a)) {
+    playCurrentAlertSound(a.kind);
+  }
 }
 
 function autoNowIntervalSeconds() {
@@ -881,7 +834,6 @@ async function clearAlerts() {
 function wireEvents() {
   soundBtn.addEventListener("click", async () => {
     soundEnabled = !soundEnabled;
-    if (!soundEnabled) clearBreakoutSoundQueue();
     updateSoundUi();
     if (soundEnabled && fallbackAudioUp) {
       try {
@@ -898,7 +850,6 @@ function wireEvents() {
   if (chkCurrentSounds) {
     chkCurrentSounds.addEventListener("change", () => {
       currentAlertSoundsEnabled = !!chkCurrentSounds.checked;
-      if (!currentAlertSoundsEnabled) clearBreakoutSoundQueue();
       persistSoundChannelPrefs();
     });
   }
@@ -911,7 +862,6 @@ function wireEvents() {
   if (silentMode) {
     silentMode.addEventListener("change", () => {
       silent = !!silentMode.checked;
-      if (silent) clearBreakoutSoundQueue();
       updateSoundUi();
     });
   }
