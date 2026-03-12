@@ -76,6 +76,7 @@ let tapePaceTimerId = 0;
 let tickDirsBySymbol = new Map();
 let tapePaceDirsBySymbol = new Map();
 let tapePaceEventsMs = [];
+let breakoutBreadthResetAtMs = 0;
 
 function setStatus(text, ok = false) {
   statusPill.textContent = text;
@@ -128,6 +129,21 @@ function currentLocalTimeInput() {
 
 function currentLocalEnabled() {
   return !!(chkLocalHigh?.checked || chkLocalLow?.checked);
+}
+
+function activateLocalBreakouts() {
+  let changed = false;
+  if (chkLocalHigh && !chkLocalHigh.checked) {
+    chkLocalHigh.checked = true;
+    changed = true;
+  }
+  if (chkLocalLow && !chkLocalLow.checked) {
+    chkLocalLow.checked = true;
+    changed = true;
+  }
+  if (changed) {
+    renderAll();
+  }
 }
 
 function formatETTime(date = new Date()) {
@@ -337,6 +353,23 @@ function alertTimeMs(a) {
   return Number.isFinite(ts) && ts > 0 ? ts : Date.now();
 }
 
+function updateBreakoutBreadthReadout(total) {
+  if (tickValueEl) {
+    tickValueEl.textContent = `${total > 0 ? "+" : ""}${total}`;
+    tickValueEl.className = `tickValue ${total > 0 ? "positive" : total < 0 ? "negative" : "neutral"}`;
+  }
+  if (tickModeBadge) {
+    tickModeBadge.textContent = "Local High/Low";
+    tickModeBadge.classList.add("local");
+  }
+}
+
+function markBreakoutBreadthReset(nowMs = Date.now()) {
+  breakoutBreadthResetAtMs = nowMs;
+  tickDirsBySymbol = new Map();
+  updateBreakoutBreadthReadout(0);
+}
+
 function rebuildBreadthAndPace() {
   tickDirsBySymbol = new Map();
   tapePaceDirsBySymbol = new Map();
@@ -346,9 +379,12 @@ function rebuildBreadthAndPace() {
   let total = 0;
   for (const a of ordered) {
     if (!alertVisible(a.kind)) continue;
-    const tickTransition = applyBreakoutTransition(a, tickDirsBySymbol);
-    if (tickTransition) {
-      total += tickTransition.delta;
+    const tsMs = alertTimeMs(a);
+    if (tsMs >= breakoutBreadthResetAtMs) {
+      const tickTransition = applyBreakoutTransition(a, tickDirsBySymbol);
+      if (tickTransition) {
+        total += tickTransition.delta;
+      }
     }
     const paceTransition = applyBreakoutTransition(a, tapePaceDirsBySymbol);
     if (paceTransition) {
@@ -356,14 +392,7 @@ function rebuildBreadthAndPace() {
     }
   }
 
-  if (tickValueEl) {
-    tickValueEl.textContent = `${total > 0 ? "+" : ""}${total}`;
-    tickValueEl.className = `tickValue ${total > 0 ? "positive" : total < 0 ? "negative" : "neutral"}`;
-  }
-  if (tickModeBadge) {
-    tickModeBadge.textContent = "Local High/Low";
-    tickModeBadge.classList.add("local");
-  }
+  updateBreakoutBreadthReadout(total);
   updateTapePaceIndicator();
 }
 
@@ -457,7 +486,11 @@ function nextAutoNowBoundaryMs(nowMs = Date.now(), opts = {}) {
   return minuteStartMs + 60000;
 }
 
-async function applyLiveUpdate() {
+async function applyLiveUpdate(opts = {}) {
+  if (opts.resetBreadth) {
+    markBreakoutBreadthReset();
+    renderAll();
+  }
   if (!streamRunning) return;
   await postJson("/api/stream", {
     mode: "update",
@@ -546,7 +579,7 @@ function setAutoNow(enabled) {
   showActionFeedback("Auto Off");
 }
 
-async function applyLocalPreset({ time, applyLive = false }) {
+async function applyLocalPreset({ time, applyLive = false, resetBreadth = true }) {
   let nextTime = time;
   const now = new Date();
   if (time === "now") {
@@ -565,9 +598,14 @@ async function applyLocalPreset({ time, applyLive = false }) {
   if (localTimeInput && normalizeClock(nextTime)) {
     localTimeInput.value = normalizeClock(nextTime);
   }
+  activateLocalBreakouts();
   syncLocalTimeMirror();
+  if (resetBreadth && !applyLive) {
+    markBreakoutBreadthReset();
+    renderAll();
+  }
   if (applyLive) {
-    await applyLiveUpdate();
+    await applyLiveUpdate({ resetBreadth });
   }
 }
 
@@ -843,7 +881,7 @@ function wireEvents() {
   btnApplyLive?.addEventListener("click", async () => {
     try {
       showActionFeedback("Apply Live");
-      await applyLiveUpdate();
+      await applyLiveUpdate({ resetBreadth: true });
     } catch (err) {
       setStatus(String(err?.message || err));
     }
