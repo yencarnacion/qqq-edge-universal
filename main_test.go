@@ -599,6 +599,46 @@ func TestQQQTapeAlertsDoNotRouteSyntheticSoundsContract(t *testing.T) {
 	}
 }
 
+func TestLocalAlertCardsUseDirectionFirstVisualContract(t *testing.T) {
+	js, err := os.ReadFile(filepath.Join("web", "app.js"))
+	if err != nil {
+		t.Fatalf("read web/app.js: %v", err)
+	}
+	src := string(js)
+	requiredJS := []string{
+		`function alertDirection(kind) {`,
+		`return { tone: "up", icon: "\u25b2" };`,
+		`return { tone: "down", icon: "\u25bc" };`,
+		`const classes = ["card", a.kind, ` + "`dir-${direction.tone}`" + `];`,
+		`<span class="badge dir-${direction.tone}">${badgeIcon}${badgeText}</span>`,
+	}
+	for _, frag := range requiredJS {
+		if !strings.Contains(src, frag) {
+			t.Fatalf("web/app.js missing direction-first alert card fragment: %q", frag)
+		}
+	}
+
+	css, err := os.ReadFile(filepath.Join("web", "styles.css"))
+	if err != nil {
+		t.Fatalf("read web/styles.css: %v", err)
+	}
+	cssSrc := string(css)
+	requiredCSS := []string{
+		"--alert-up-border: #23c552;",
+		"--alert-down-border: #ff3b3b;",
+		"border-left-width:12px;",
+		".card.dir-up{",
+		".card.dir-down{",
+		".badge.dir-up{",
+		".badge.dir-down{",
+	}
+	for _, frag := range requiredCSS {
+		if !strings.Contains(cssSrc, frag) {
+			t.Fatalf("web/styles.css missing direction-first alert style fragment: %q", frag)
+		}
+	}
+}
+
 func TestEssentialsModeKeepsTopbarAndControlsVisibleContract(t *testing.T) {
 	css, err := os.ReadFile(filepath.Join("web", "styles.css"))
 	if err != nil {

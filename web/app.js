@@ -296,18 +296,31 @@ function alertLabel(kind) {
   return kind || "ALERT";
 }
 
+function alertDirection(kind) {
+  if (kind === "lhigh" || kind === "hod") {
+    return { tone: "up", icon: "\u25b2" };
+  }
+  if (kind === "llow" || kind === "lod") {
+    return { tone: "down", icon: "\u25bc" };
+  }
+  return { tone: "neutral", icon: "" };
+}
+
 function buildSourceTags(sources) {
   if (!Array.isArray(sources) || sources.length === 0) return "";
   return `<span class="sourceWrap">${sources.map((s) => `<span class="srcTag">${escapeHtml(s)}</span>`).join("")}</span>`;
 }
 
 function buildAlertCard(a, live = false) {
-  const classes = ["card", a.kind];
+  const direction = alertDirection(a.kind);
+  const classes = ["card", a.kind, `dir-${direction.tone}`];
   if (live) classes.push("live");
+  const badgeText = alertLabel(a.kind);
+  const badgeIcon = direction.icon ? `<span class="badgeIcon" aria-hidden="true">${direction.icon}</span>` : "";
   return `
-    <article class="${classes.join(" ")}">
+    <article class="${classes.join(" ")}" data-direction="${direction.tone}">
       <div class="left">
-        <span class="badge">${alertLabel(a.kind)}</span>
+        <span class="badge dir-${direction.tone}">${badgeIcon}${badgeText}</span>
         <span class="sym">${escapeHtml(a.sym || "")}</span>
         ${buildSourceTags(a.sources)}
         ${a.name ? `<span class="name">${escapeHtml(a.name)}</span>` : ""}
