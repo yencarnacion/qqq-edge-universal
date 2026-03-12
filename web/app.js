@@ -353,6 +353,21 @@ function alertTimeMs(a) {
   return Number.isFinite(ts) && ts > 0 ? ts : Date.now();
 }
 
+function breakoutBreadthTransitionForSound(a) {
+  if (!alertVisible(a?.kind)) return null;
+  if (alertTimeMs(a) < breakoutBreadthResetAtMs) return null;
+  return applyBreakoutTransition(a, tickDirsBySymbol);
+}
+
+function playBreakoutBreadthChangeSound(transition) {
+  if (!transition) return;
+  if (transition.delta < 0) {
+    playDownSound();
+    return;
+  }
+  playUpSound();
+}
+
 function updateBreakoutBreadthReadout(total) {
   if (tickValueEl) {
     tickValueEl.textContent = `${total > 0 ? "+" : ""}${total}`;
@@ -433,14 +448,13 @@ function startTapePaceTimer() {
 
 function addIncomingAlert(a) {
   if (!a || !a.kind || !a.sym) return;
+  const breadthTransition = breakoutBreadthTransitionForSound(a);
   allAlerts.unshift(a);
   if (allAlerts.length > HISTORY_LIMIT) {
     allAlerts = allAlerts.slice(0, HISTORY_LIMIT);
   }
   renderAll();
-  if (alertVisible(a.kind)) {
-    playCurrentAlertSound(a.kind);
-  }
+  playBreakoutBreadthChangeSound(breadthTransition);
 }
 
 function autoNowIntervalSeconds() {
