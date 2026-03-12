@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	poly "qqq-edge/internal/polygon"
+	md "qqq-edge-universal/internal/marketdata"
 )
 
 func TestLoadQQQHoldingsFiltersAndKeepsRawETFWeights(t *testing.T) {
@@ -49,15 +49,15 @@ func TestQQQFairValueTurnsPositiveWhenLeadersLeadHigher(t *testing.T) {
 
 	base := time.Date(2026, time.March, 2, 10, 0, 0, 0, et)
 
-	eng.OnQuote(poly.Quote{Sym: "QQQ", Bp: 500.00, Bs: 12, Ap: 500.02, As: 6, T: base.UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "AAPL", Bp: 220.00, Bs: 20, Ap: 220.02, As: 12, T: base.UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "MSFT", Bp: 410.00, Bs: 18, Ap: 410.02, As: 10, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "QQQ", Bp: 500.00, Bs: 12, Ap: 500.02, As: 6, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "AAPL", Bp: 220.00, Bs: 20, Ap: 220.02, As: 12, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "MSFT", Bp: 410.00, Bs: 18, Ap: 410.02, As: 10, T: base.UnixMilli()})
 
-	eng.OnQuote(poly.Quote{Sym: "AAPL", Bp: 220.18, Bs: 26, Ap: 220.20, As: 8, T: base.Add(900 * time.Millisecond).UnixMilli()})
-	eng.OnTrade(poly.Trade{Sym: "AAPL", P: 220.20, S: 400, T: base.Add(910 * time.Millisecond).UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "MSFT", Bp: 410.28, Bs: 22, Ap: 410.30, As: 8, T: base.Add(920 * time.Millisecond).UnixMilli()})
-	eng.OnTrade(poly.Trade{Sym: "MSFT", P: 410.30, S: 200, T: base.Add(930 * time.Millisecond).UnixMilli()})
-	eng.OnTrade(poly.Trade{Sym: "QQQ", P: 500.02, S: 100, T: base.Add(940 * time.Millisecond).UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "AAPL", Bp: 220.18, Bs: 26, Ap: 220.20, As: 8, T: base.Add(900 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "AAPL", P: 220.20, S: 400, T: base.Add(910 * time.Millisecond).UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "MSFT", Bp: 410.28, Bs: 22, Ap: 410.30, As: 8, T: base.Add(920 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "MSFT", P: 410.30, S: 200, T: base.Add(930 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "QQQ", P: 500.02, S: 100, T: base.Add(940 * time.Millisecond).UnixMilli()})
 
 	snap := eng.Snapshot()
 	if snap.EdgeBps <= 0 {
@@ -85,12 +85,12 @@ func TestQQQFairValueRespectsTrackedCoverageWithoutRenormalizing(t *testing.T) {
 	})
 
 	base := time.Date(2026, time.March, 2, 10, 0, 0, 0, et)
-	eng.OnQuote(poly.Quote{Sym: "QQQ", Bp: 500.00, Bs: 12, Ap: 500.02, As: 6, T: base.UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "AAPL", Bp: 220.00, Bs: 20, Ap: 220.02, As: 12, T: base.UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "MSFT", Bp: 410.00, Bs: 18, Ap: 410.02, As: 10, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "QQQ", Bp: 500.00, Bs: 12, Ap: 500.02, As: 6, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "AAPL", Bp: 220.00, Bs: 20, Ap: 220.02, As: 12, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "MSFT", Bp: 410.00, Bs: 18, Ap: 410.02, As: 10, T: base.UnixMilli()})
 
-	eng.OnQuote(poly.Quote{Sym: "AAPL", Bp: 220.22, Bs: 22, Ap: 220.24, As: 8, T: base.Add(900 * time.Millisecond).UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "MSFT", Bp: 410.41, Bs: 19, Ap: 410.43, As: 8, T: base.Add(920 * time.Millisecond).UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "AAPL", Bp: 220.22, Bs: 22, Ap: 220.24, As: 8, T: base.Add(900 * time.Millisecond).UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "MSFT", Bp: 410.41, Bs: 19, Ap: 410.43, As: 8, T: base.Add(920 * time.Millisecond).UnixMilli()})
 
 	snap := eng.Snapshot()
 	if math.Abs(snap.BasketCoverage-0.50) > 1e-9 {
@@ -109,16 +109,54 @@ func TestQQQFairValueWeightsLeaderNotionalNotJustDirection(t *testing.T) {
 	eng := newQQQTapeEngine(newHub(10), et, []qqqHolding{{Symbol: "AAPL", Weight: 0.50}, {Symbol: "MSFT", Weight: 0.50}})
 
 	base := time.Date(2026, time.March, 2, 10, 0, 0, 0, et)
-	eng.OnQuote(poly.Quote{Sym: "QQQ", Bp: 500.00, Bs: 12, Ap: 500.02, As: 6, T: base.UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "AAPL", Bp: 220.00, Bs: 20, Ap: 220.02, As: 8, T: base.UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "MSFT", Bp: 410.00, Bs: 18, Ap: 410.02, As: 9, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "QQQ", Bp: 500.00, Bs: 12, Ap: 500.02, As: 6, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "AAPL", Bp: 220.00, Bs: 20, Ap: 220.02, As: 8, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "MSFT", Bp: 410.00, Bs: 18, Ap: 410.02, As: 9, T: base.UnixMilli()})
 
-	eng.OnTrade(poly.Trade{Sym: "AAPL", P: 220.02, S: 500, T: base.Add(100 * time.Millisecond).UnixMilli()})
-	eng.OnTrade(poly.Trade{Sym: "MSFT", P: 410.00, S: 10, T: base.Add(110 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "AAPL", P: 220.02, S: 500, T: base.Add(100 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "MSFT", P: 410.00, S: 10, T: base.Add(110 * time.Millisecond).UnixMilli()})
 
 	snap := eng.Snapshot()
 	if snap.LeaderFlow250 <= 0 {
 		t.Fatalf("leader_flow_250 = %.3f, want positive because buy notional dominates", snap.LeaderFlow250)
+	}
+}
+
+func TestQQQTapeTradableTransitionDoesNotEmitLiveAlerts(t *testing.T) {
+	et := mustET("America/New_York")
+	h := newHub(10)
+	eng := newQQQTapeEngine(h, et, []qqqHolding{
+		{Symbol: "AAPL", Weight: 0.55},
+		{Symbol: "MSFT", Weight: 0.30},
+		{Symbol: "NVDA", Weight: 0.15},
+	})
+
+	base := time.Date(2026, time.March, 2, 10, 0, 0, 0, et)
+
+	eng.OnQuote(md.Quote{Sym: "QQQ", Bp: 500.00, Bs: 15, Ap: 500.02, As: 11, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "AAPL", Bp: 220.00, Bs: 18, Ap: 220.02, As: 10, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "MSFT", Bp: 410.00, Bs: 16, Ap: 410.02, As: 11, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "NVDA", Bp: 900.00, Bs: 14, Ap: 900.04, As: 12, T: base.UnixMilli()})
+
+	eng.OnQuote(md.Quote{Sym: "AAPL", Bp: 220.09, Bs: 22, Ap: 220.11, As: 9, T: base.Add(900 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "AAPL", P: 220.11, S: 160, T: base.Add(950 * time.Millisecond).UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "MSFT", Bp: 410.10, Bs: 18, Ap: 410.12, As: 10, T: base.Add(1000 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "MSFT", P: 410.12, S: 90, T: base.Add(1050 * time.Millisecond).UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "NVDA", Bp: 900.52, Bs: 15, Ap: 900.56, As: 11, T: base.Add(1100 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "NVDA", P: 900.56, S: 40, T: base.Add(1150 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "QQQ", P: 500.02, S: 200, T: base.Add(1200 * time.Millisecond).UnixMilli()})
+
+	alerts := h.getHistory()
+	if len(alerts) != 0 {
+		t.Fatalf("alerts len = %d, want 0", len(alerts))
+	}
+
+	eng.OnTrade(md.Trade{Sym: "QQQ", P: 500.02, S: 100, T: base.Add(1300 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "AAPL", P: 220.11, S: 40, T: base.Add(1350 * time.Millisecond).UnixMilli()})
+
+	alerts = h.getHistory()
+	if len(alerts) != 0 {
+		t.Fatalf("alerts len after repeated tradable updates = %d, want 0", len(alerts))
 	}
 }
 
@@ -230,18 +268,18 @@ func runQQQTapeRegressionScenario(t *testing.T, conflictQQQ bool) qqqTapeMsg {
 		qqqTradePrice = 500.00
 	}
 
-	eng.OnQuote(poly.Quote{Sym: "QQQ", Bp: 500.00, Bs: int64(qqqBidSize), Ap: 500.02, As: int64(qqqAskSize), T: base.UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "AAPL", Bp: 220.00, Bs: 18, Ap: 220.02, As: 10, T: base.UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "MSFT", Bp: 410.00, Bs: 16, Ap: 410.02, As: 11, T: base.UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "NVDA", Bp: 900.00, Bs: 14, Ap: 900.04, As: 12, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "QQQ", Bp: 500.00, Bs: int64(qqqBidSize), Ap: 500.02, As: int64(qqqAskSize), T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "AAPL", Bp: 220.00, Bs: 18, Ap: 220.02, As: 10, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "MSFT", Bp: 410.00, Bs: 16, Ap: 410.02, As: 11, T: base.UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "NVDA", Bp: 900.00, Bs: 14, Ap: 900.04, As: 12, T: base.UnixMilli()})
 
-	eng.OnQuote(poly.Quote{Sym: "AAPL", Bp: 220.09, Bs: 22, Ap: 220.11, As: 9, T: base.Add(900 * time.Millisecond).UnixMilli()})
-	eng.OnTrade(poly.Trade{Sym: "AAPL", P: 220.11, S: 160, T: base.Add(950 * time.Millisecond).UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "MSFT", Bp: 410.10, Bs: 18, Ap: 410.12, As: 10, T: base.Add(1000 * time.Millisecond).UnixMilli()})
-	eng.OnTrade(poly.Trade{Sym: "MSFT", P: 410.12, S: 90, T: base.Add(1050 * time.Millisecond).UnixMilli()})
-	eng.OnQuote(poly.Quote{Sym: "NVDA", Bp: 900.52, Bs: 15, Ap: 900.56, As: 11, T: base.Add(1100 * time.Millisecond).UnixMilli()})
-	eng.OnTrade(poly.Trade{Sym: "NVDA", P: 900.56, S: 40, T: base.Add(1150 * time.Millisecond).UnixMilli()})
-	eng.OnTrade(poly.Trade{Sym: "QQQ", P: qqqTradePrice, S: 200, T: base.Add(1200 * time.Millisecond).UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "AAPL", Bp: 220.09, Bs: 22, Ap: 220.11, As: 9, T: base.Add(900 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "AAPL", P: 220.11, S: 160, T: base.Add(950 * time.Millisecond).UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "MSFT", Bp: 410.10, Bs: 18, Ap: 410.12, As: 10, T: base.Add(1000 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "MSFT", P: 410.12, S: 90, T: base.Add(1050 * time.Millisecond).UnixMilli()})
+	eng.OnQuote(md.Quote{Sym: "NVDA", Bp: 900.52, Bs: 15, Ap: 900.56, As: 11, T: base.Add(1100 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "NVDA", P: 900.56, S: 40, T: base.Add(1150 * time.Millisecond).UnixMilli()})
+	eng.OnTrade(md.Trade{Sym: "QQQ", P: qqqTradePrice, S: 200, T: base.Add(1200 * time.Millisecond).UnixMilli()})
 
 	nowRecv := base.Add(1300 * time.Millisecond)
 

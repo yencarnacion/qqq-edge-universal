@@ -120,9 +120,10 @@ body{
 }
 body.essentials .essentialsInline{
   display:flex;
-}
-body.essentials .topbar{
-  display:none;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
 }
 .brand{ font-weight:800; letter-spacing:.3px; }
 .brand .muted{ color: var(--muted); font-weight:600; }
@@ -191,6 +192,8 @@ body.essentials .topbar{
   display:flex;
   align-items:center;
   gap:10px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
 }
 .tickModeBadge{
   display:inline-flex;
@@ -371,10 +374,13 @@ button:hover{ filter:brightness(1.06); }
 .leftCol{ }
 .rightCol{ position: relative; }
 body.essentials .container{
-  margin-top:10px;
+  margin:12px;
 }
-body.essentials .controls{
-  display:none !important;
+body.essentials .topbar{
+  display:none;
+}
+body.essentials .panel.controls{
+  display:none;
 }
 body.essentials .split{
   grid-template-columns: 1fr;
@@ -401,12 +407,14 @@ body.qqqMode .split{
 }
 body.qqqMode .leftCol,
 body.qqqMode #tickPanel,
-body.qqqMode .rightTabs,
 body.qqqMode .qqqHide{
   display:none !important;
 }
 body.qqqMode #qqqTapePanel{
   margin: 0;
+}
+body.qqqMode .rightTabs{
+  display:flex;
 }
 .rightTabs{ display:flex; flex-direction:column; gap:10px; }
 .tabHeader{
@@ -419,6 +427,41 @@ body.qqqMode #qqqTapePanel{
   display:flex;
   align-items:center;
   gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+.alertSourceToggle{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:4px;
+  border-radius:12px;
+  border:1px solid #2d3f57;
+  background:#111826;
+  box-shadow:0 0 0 1px rgba(255,255,255,0.04) inset;
+}
+.alertSourceBtn{
+  min-width:72px;
+  padding:9px 12px;
+  border-radius:9px;
+  border:1px solid transparent;
+  background:transparent;
+  color:#b9c9dc;
+  font-size:14px;
+  font-weight:800;
+  letter-spacing:.2px;
+  transition:background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
+}
+.alertSourceBtn:hover,
+.alertSourceBtn:focus-visible{
+  background:#1a2940;
+  color:#eef6ff;
+}
+.alertSourceBtn.isActive{
+  border-color:#4e7095;
+  background:#20415f;
+  color:#f3f9ff;
+  box-shadow:0 0 0 1px rgba(148, 194, 240, 0.18) inset;
 }
 .tapePaceIndicator{
   min-width:132px;
@@ -733,96 +776,14 @@ body.qqqMode #qqqTapePanel{
   border-color:#6b5d1a;
   color:#ffd36e;
 }
-/* Scalp type text (to the right of the star) */
-.left .scalpType{
-  font-size:12px;
-  font-weight:700;
-  color: var(--magenta);
-  text-transform: capitalize;
-}
-/* --- Info row (News + SEC) --- */
-.infoRow{
-  grid-area: infos;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 6px;
-}
-.infoCol{
-  background:#121218;
-  border:1px solid #1c2130;
-  border-radius:8px;
-  padding:10px;
-}
-.sectionTitle{
-  font-weight:700; font-size:12px; letter-spacing:.2px; color:#d6d9e0;
-  margin-bottom:6px;
-}
-.newsList, .secList{
-  list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:6px;
-}
-.newsItem a, .secItem a{
-  display:block;
-  text-decoration:none;
-  padding:6px 8px;
-  border-radius:6px;
-  background:#141824;
-  border:1px solid #1f2430;
-}
-.newsList .muted, .secList .muted{
-  display:block;
-  padding:6px 8px;
-  border-radius:6px;
-  background:#141824;
-  border:1px solid #1f2430;
-}
-.newsItem a:hover, .secItem a:hover{ background:#171c2a; }
-.headline{
-  display:block; color:var(--headline); font-size:12px; line-height:1.25;
-}
-.meta{
-  display:block; color:var(--meta); font-size:10px; margin-top:3px;
-}
-.moreLink{
-  display:inline-block; margin-top:8px; font-size:11px; color:var(--link);
-  text-decoration:none;
-}
-.moreLink:hover{ color:var(--link-hover); text-decoration:underline; }
 .linkBtn{
   margin-top:0; background:transparent; border:0; color:var(--link);
   font-size:12px; cursor:pointer; padding:0;
 }
 .linkBtn:hover{ color:var(--link-hover); text-decoration:underline; }
-.formType{
-  color:var(--form);
-  font-weight:700;
-  border:1px solid #3b2f10;
-  background:#2a2212;
-  padding:1px 4px;
-  border-radius:4px;
-  margin-right:6px;
-  font-size:11px;
-}
 .hidden{ display:none; }
 .muted{ color:var(--muted); }
-/* News page tweaks */
-.page{
-  max-width: 980px; margin: 20px auto; padding: 0 14px;
-}
-.newsGrid{
-  display:flex; flex-direction:column; gap:10px;
-}
-.newsBig a{
-  display:block; padding:10px 12px; border:1px solid #1f2430; border-radius:8px;
-  text-decoration:none; background:#141824;
-}
-.newsBig a:hover{ background:#171c2a; }
-.newsBig .headline{ font-size:15px; }
-.newsBig .meta{ font-size:12px; }
 /* Responsive */
-@media (max-width: 780px){
-  .infoRow{ grid-template-columns: 1fr; }
-}
 @media (max-width: 600px){
   .name{ display:none; }
   .chartBox{ width: 130px; height: 130px; }
@@ -830,6 +791,7 @@ body.qqqMode #qqqTapePanel{
   .anchor-input-row{ flex-wrap:wrap; }
   .tabHeader{ flex-wrap:wrap; }
   .liveNowCluster{ margin-left:auto; }
+  .alertSourceBtn{ min-width:66px; padding:8px 10px; font-size:13px; }
   .tapePaceIndicator{ min-width:122px; padding:8px 10px; }
   .tapePaceLabel,
   .tapePaceWindow{ font-size:15px; }
@@ -868,92 +830,12 @@ body.compact .chartBox{
   border-radius:6px;
 }
 body.compact .toggleChart{ padding:6px 10px; font-size:12px; }
-body.compact .infoRow{
-  gap:10px;
-}
-body.compact .infoCol{
-  padding:6px;
-  border-radius:6px;
-}
-body.compact .sectionTitle{ font-size:12px; margin-bottom:4px; }
-body.compact .newsList, body.compact .secList{ gap:4px; }
-body.compact .newsItem a, body.compact .secItem a{ padding:5px 6px; }
-body.compact .headline{ font-size:12px; }
-body.compact .meta{ font-size:10px; }
-/* Show only top 2 items in each list on compact cards */
-body.compact .newsList li:nth-child(n+3),
-body.compact .secList li:nth-child(n+3){
-  display:none;
-}
-/* NEW: Styles for Recent Alerts table */
 .title{ font-weight:800; letter-spacing:.2px; margin-bottom:8px; }
 table{ width:100%; border-collapse:collapse; font-size:13px; }
 th, td{ padding:6px 8px; border:1px solid #1c2130; text-align:left; }
 th{ background:#0f1016; color:#d6d9e0; font-weight:700; }
 td{ background:#121218; color:#cbd5e1; }
 .check{ display:flex; align-items:center; gap:8px; padding:0 6px 6px; }
-/* ===== RVOL table-only affordances & grouping ===== */
-#alertsTable th.sortable{
-  cursor: pointer;
-  user-select: none;
-  position: relative;
-  white-space: nowrap;
-}
-#alertsTable th.sortable::after{
-  content: " ⇅";
-  opacity: .45;
-  font-size: 11px;
-}
-#alertsTable th.sortable[data-dir="asc"]::after{ content: " ▲"; opacity: .95; }
-#alertsTable th.sortable[data-dir="desc"]::after{ content: " ▼"; opacity: .95; }
-
-/* Minute "zebra" bands (easy-on-eyes contrast) */
-#alertsTable tr.groupEven td { background: #121218; } /* existing tone */
-#alertsTable tr.groupOdd  td { background: #141824; } /* slightly offset tone */
-
-/* Bright divider at the start of every new minute */
-#alertsTable tr.minuteStart td{
-  border-top-width: 2px;
-  border-top-color: var(--blue);
-}
-
-/* Optional: row hover clarity (table only) */
-#alertsTable tbody tr:hover td{
-  filter: brightness(1.06);
-}
-
-/* Price deltas in RVOL table */
-.delta {
-  font-weight: 700;
-  margin-left: 4px;
-}
-.delta.pos { color: var(--green); }
-.delta.neg { color: var(--red); }
-
-/* Scalp-specific styling */
-.card.scalp {
-  border-color: var(--blue);
-}
-.card.scalp.rubberband { border-color: #ff00ff; }
-.card.scalp.rubberband_up { border-color: var(--yellow); }
-.card.scalp.backside { border-color: var(--yellow); }
-.card.scalp.fashionably_late { border-color: var(--green); }
-
-.card.scalp.setup {
-  box-shadow: 0 0 0 1px rgba(148, 163, 253, 0.4) inset;
-}
-.card.scalp.trigger {
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.9) inset;
-}
-
-.badge.scalpBadge {
-  background: #1d2438;
-  color: #9fb4ff;
-}
-.badge.phaseBadge {
-  background: #0f172a;
-  color: #38bdf8;
-}
 
 /* Live‑only highlights */
 .card.live .price .cap.isTinyCap{

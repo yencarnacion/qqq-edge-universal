@@ -2,15 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>qqq-edge</title>
+  <title>qqq-edge-universal</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <link rel="stylesheet" href="/assets/styles.css"/>
-  <!-- Lightweight Charts (pinned to v4 to avoid breaking API changes) -->
-  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4/dist/lightweight-charts.standalone.production.js" defer></script>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">qqq-edge</div>
+    <div class="brand">qqq-edge-universal</div>
     <div class="topRight">
       <label class="essentialsToggle" title="Show only essentials">
         <input id="chkEssentialsTop" type="checkbox"/>
@@ -21,147 +19,73 @@
       <div id="status" class="pill">Disconnected</div>
     </div>
   </header>
+
   <main class="container">
     <section class="panel controls">
       <div class="field">
         <label for="dateInput">Date (ET)</label>
-        <input id="dateInput" type="date" />
+        <input id="dateInput" type="date"/>
       </div>
-      <div class="field">
-        <span>Session</span>
-        <div class="radio-row">
-          <label><input type="radio" name="session" value="pre" checked> Pre-market (04:00-20:00)</label>
-          <label><input type="radio" name="session" value="rth"> Regular (09:30-20:00)</label>
-          <label><input type="radio" name="session" value="pm"> PM (16:00-20:00)</label>
-        </div>
-        <div class="quick-row">
-          <button type="button" class="quickBtn sessionQuick" data-session="pre" data-local="04:06">04:00</button>
-          <button type="button" class="quickBtn sessionQuick" data-session="rth" data-local="09:30">09:30</button>
-          <button type="button" class="quickBtn sessionQuick" data-session="pm" data-local="16:06">16:00</button>
-        </div>
-      </div>
-      <div class="field qqqHide">
-        <span>Levels Mode</span>
-        <div class="radio-row">
-          <label><input type="radio" name="levelsMode" value="session" checked> Session HOD/LOD</label>
-          <label><input type="radio" name="levelsMode" value="local"> Local High/Low</label>
-        </div>
-      </div>
+
       <div class="field qqqHide">
         <span>Alert types</span>
         <div class="radio-row">
-          <label><input type="checkbox" id="chkHod" checked> HOD</label>
-          <label><input type="checkbox" id="chkLod" checked> LOD</label>
-          <label><input type="checkbox" id="chkLocalHigh"> Local High</label>
-          <label><input type="checkbox" id="chkLocalLow"> Local Low</label>
-        </div>
-        <div class="muted" style="font-size:12px;margin-top:4px;">
-          Toggle what you want to see in this tab.
+          <label><input type="checkbox" id="chkLocalHigh" checked> Local High</label>
+          <label><input type="checkbox" id="chkLocalLow" checked> Local Low</label>
         </div>
       </div>
-      <div class="field field-anchor qqqHide">
+
+      <div class="field field-anchor">
         <label for="localTimeInput">Local Anchor Time (ET)</label>
         <div class="anchor-input-row">
-          <input id="localTimeInput" type="time" step="60" value="09:30" />
-          <span id="localTimeReadout" class="localTimeReadout" aria-label="Local Anchor Time readout">09:30:00</span>
+          <input id="localTimeInput" type="time" step="60" value="09:30"/>
+          <span id="localTimeReadout" class="localTimeReadout">09:30:00</span>
           <button id="btnApplyLive" type="button" class="primary">Apply Live</button>
         </div>
         <div class="quick-row">
-          <button type="button" class="quickBtn localPreset" data-time="04:06" data-session="pre">04:06</button>
-          <button type="button" class="quickBtn localPreset" data-time="09:30" data-session="rth">09:30</button>
-          <button type="button" class="quickBtn localPreset" data-time="16:06" data-session="pm">16:06</button>
+          <button type="button" class="quickBtn localPreset" data-time="04:06">04:06</button>
+          <button type="button" class="quickBtn localPreset" data-time="09:30">09:30</button>
+          <button type="button" class="quickBtn localPreset" data-time="16:06">16:06</button>
           <button type="button" class="quickBtn localPreset" data-time="prev_half">Prev 1/2h</button>
           <button type="button" class="quickBtn localPreset" data-time="prev_hour">Prev hour</button>
           <button type="button" class="quickBtn localPreset" data-time="now">Now</button>
         </div>
       </div>
+
       <div class="field qqqHide">
-        <span>Scalp Alerts</span>
-        <div class="radio-row">
-          <label><input type="checkbox" id="chkScalps" checked> Enable scalps (Rubberband, Backside, Fashionably late)</label>
-        </div>
-      </div>
-      <!-- NEW: Layout / Compact mode -->
-      <div class="field qqqHide">
-        <span>Layout</span>
-        <div class="radio-row">
-          <label title="Smaller cards & denser lists for side-by-side with trading software">
-            <input type="checkbox" id="chkCompact"> Compact mode
-          </label>
-        </div>
-        <div class="muted" style="font-size:12px;margin-top:4px;">
-          Tip: add <code>?compact=1</code> to the URL to start in compact mode. Preference is saved in this browser.
-        </div>
-      </div>
-      <!-- NEW RVOL controls -->
-      <div class="field qqqHide">
-        <label for="rvolThreshold">RVOL Threshold</label>
-        <input id="rvolThreshold" type="number" step="0.1" value="2.0" min="1.0"/>
-      </div>
-      <div class="field qqqHide">
-        <label for="rvolMethod">RVOL Method</label>
-        <select id="rvolMethod">
-          <option value="A">Method A (Mean)</option>
-          <option value="B" selected>Method B (Median)</option>
-        </select>
-      </div>
-      <div class="field qqqHide">
-        <span>Baseline Mode</span>
-        <div class="radio-row">
-          <label><input type="radio" name="baseline" value="single" checked> Single-bar</label>
-          <label><input type="radio" name="baseline" value="cumulative"> Cumulative</label>
-        </div>
-      </div>
-      <div class="field qqqHide">
-        <span>RVOL Active</span>
-        <label><input type="checkbox" id="rvolActive"> Enable</label>
-      </div>
-      <div class="field qqqHide">
-        <label for="bucketSize">Bucket Size</label>
-        <input id="bucketSize" type="text" value="1m" disabled/>
-      </div>
-      <div class="field">
         <span>Sound Channels</span>
         <div class="radio-row">
           <label><input type="checkbox" id="chkCurrentSounds" checked> Current alerts</label>
-          <label><input type="checkbox" id="chkSyntheticSounds" checked> Synthetic QQQ tape</label>
-        </div>
-        <div class="muted" style="font-size:12px;margin-top:4px;">
-          Current alerts = HOD/LOD/local/scalp/RVOL. Synthetic QQQ tape = bullish/bearish edge intensity tones.
+          <label><input type="checkbox" id="chkSyntheticSounds" checked> QQQ tape</label>
         </div>
       </div>
+
       <label class="check qqqHide">
         <input id="silentMode" type="checkbox"/>
         <span>Silent Mode</span>
       </label>
+
       <div class="btns">
         <button id="btnStart" class="primary">Start</button>
         <button id="btnStop" class="danger">Stop</button>
         <button id="btnPause">Pause Alerts (tab)</button>
         <button id="btnClear">Clear</button>
-        <button id="btnReloadWl" title="Reload watchlist.yaml">Reload watchlist</button>
+        <button id="btnReloadWl" title="Reload watchlists">Reload watchlist</button>
       </div>
     </section>
-    <!-- ===== Split layout: LEFT (history you can scroll/pin) • RIGHT (live stream) ===== -->
+
     <section class="split">
-      <!-- LEFT: pinned + historical feed (scrollable), max 50% width -->
       <div class="col leftCol">
-        <!-- Pinned alerts -->
-        <section id="pinnedWrap" class="panel pinnedWrap hidden" aria-live="polite" aria-label="Pinned alerts">
-          <div class="pinnedTop">
-            <div class="pinTitle">Pinned <span id="pinnedCount" class="count">(0)</span></div>
-            <button id="btnUnpinAll" class="linkBtn" disabled>Unpin all</button>
-          </div>
-          <div id="pinned" class="pinnedList"></div>
-        </section>
-        <!-- Historical feed (newest first via column-reverse) -->
         <section id="feed" class="feed" aria-live="polite"></section>
       </div>
 
-      <!-- RIGHT: tabbed panel (Live Alerts / RVOL table) -->
       <div class="col rightCol">
         <section id="qqqTapePanel" class="panel tickPanel tapePanel" aria-label="QQQ tape">
           <div class="essentialsInline">
+            <div class="alertSourceToggle" data-alert-source-group role="group" aria-label="Alert source">
+              <button type="button" class="alertSourceBtn" data-alert-source="trades" aria-pressed="true">Trades</button>
+              <button type="button" class="alertSourceBtn" data-alert-source="nbbo" aria-pressed="false">NBBO</button>
+            </div>
             <label class="essentialsToggle qqqTapeEssentials" title="Exit essentials mode">
               <input id="chkEssentialsQqqTape" type="checkbox"/>
               <span>Essentials Mode</span>
@@ -174,6 +98,7 @@
             </div>
             <div class="tickReadout">
               <span id="qqqTapeState" class="tapeState idle">No Trade</span>
+              <span id="qqqTapeBias" class="tapeBias neutral">Balanced</span>
               <span id="qqqTapeExec" class="tickValue neutral">0.00¢</span>
             </div>
           </div>
@@ -198,10 +123,10 @@
           <div class="tickTop">
             <div>
               <div class="title">Breakout Breadth</div>
-              <div class="muted tickFormula">State breadth = upside breakouts (+1) minus downside breakouts (−1) from HOD/LOD or Local High/Low alerts</div>
+              <div class="muted tickFormula">State breadth = upside local highs (+1) minus downside local lows (-1).</div>
             </div>
             <div class="tickReadout">
-              <span id="tickModeBadge" class="tickModeBadge">Session HOD/LOD</span>
+              <span id="tickModeBadge" class="tickModeBadge local">Local High/Low</span>
               <span id="tickValue" class="tickValue neutral">0</span>
             </div>
           </div>
@@ -211,19 +136,21 @@
             <span class="tickLegendNeg">More downside breakouts</span>
           </div>
         </section>
-        <section class="panel rightTabs" aria-label="Right panel tabs">
+
+        <section class="panel rightTabs" aria-label="Live alerts">
           <div class="tabHeader">
-            <div class="tabRow" role="tablist" aria-label="Alert views">
-              <button id="tabLiveBtn" type="button" class="tabBtn isActive" role="tab" aria-controls="liveWrap" aria-selected="true">Live Alerts</button>
-              <button id="tabRvolBtn" type="button" class="tabBtn" role="tab" aria-controls="alertsWrap" aria-selected="false">RVOL Table</button>
-            </div>
+            <div class="title">Live Alerts</div>
             <div class="liveNowCluster">
+              <div class="alertSourceToggle" data-alert-source-group role="group" aria-label="Alert source">
+                <button type="button" class="alertSourceBtn" data-alert-source="trades" aria-pressed="true">Trades</button>
+                <button type="button" class="alertSourceBtn" data-alert-source="nbbo" aria-pressed="false">NBBO</button>
+              </div>
               <div
                 id="tapePaceIndicator"
                 class="tapePaceIndicator"
                 data-state="idle"
-                title="Counts only breakout alerts that change the current breadth state in the rolling pace-of-tape window"
-                aria-label="Pace of tape: 0 breakout alerts changed breadth state in the last 60 seconds"
+                title="Counts local high/low alerts that change breakout breadth in the rolling pace window"
+                aria-label="Pace of tape: 0 local high/low alerts changed breakout breadth in the last 60 seconds"
               >
                 <span class="tapePaceLabel">Pace</span>
                 <span id="tapePaceWindow" class="tapePaceWindow">60s</span>
@@ -239,7 +166,7 @@
                 <span class="liveAutoLabel">Auto</span>
                 <span id="liveAutoCountdown" class="liveAutoCountdown" hidden>10s</span>
               </button>
-              <span id="liveNowTime" class="liveNowTime" aria-label="Current ET time">09:30:00</span>
+              <span id="liveNowTime" class="liveNowTime">09:30:00</span>
               <button
                 id="btnLiveNow"
                 type="button"
@@ -252,35 +179,16 @@
             </div>
           </div>
 
-          <section id="liveWrap" class="tabPane" role="tabpanel" aria-live="polite">
-            <div class="title">Live Alerts</div>
+          <section id="liveWrap" class="tabPane" aria-live="polite">
             <div id="live" class="liveFeed" aria-live="polite"></div>
-          </section>
-
-          <section id="alertsWrap" class="tabPane" role="tabpanel" aria-live="polite" hidden>
-            <div class="title">Recent RVOL Alerts <span id="alertsCount" class="count">(0)</span></div>
-            <table id="alertsTable">
-              <thead>
-                <tr>
-                  <th scope="col">Time (ET)</th>
-                  <th scope="col" class="sortable" data-key="symbol" title="Sort Ticker (per minute)">Ticker</th>
-                  <th scope="col" class="sortable" data-key="price" title="Sort Price (per minute)">Price</th>
-                  <th scope="col" class="sortable" data-key="volume" title="Sort Volume (per minute)">Volume</th>
-                  <th scope="col" class="sortable" data-key="baseline" title="Sort Baseline (per minute)">Baseline</th>
-                  <th scope="col" class="sortable" data-key="rvol" title="Sort RVOL (per minute)">RVOL</th>
-                  <th scope="col">Method</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
           </section>
         </section>
       </div>
     </section>
   </main>
+
   <div id="actionFlash" class="actionFlash" aria-hidden="true"></div>
   <div id="actionBadge" class="actionBadge" aria-live="polite" aria-atomic="true"></div>
-  <!-- Fallback audio (used if Web Audio is unavailable) -->
   <audio id="alertAudioUp" src="/alert.mp3" preload="auto"></audio>
   <audio id="alertAudioDown" src="/alert-down.mp3" preload="auto"></audio>
   <script src="/assets/app.js" defer></script>

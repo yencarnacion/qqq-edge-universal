@@ -57,7 +57,7 @@ Compatibility note:
 
 If this fails, treat it as information, not an execution green light.
 
-## Practical Scalper Workflow
+## Practical Execution Workflow
 
 1. Set directional lean from `exec_edge_bps` sign.
 2. Check valuation context with `fair_gap_bps`.

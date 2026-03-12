@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	poly "qqq-edge/internal/polygon"
+	md "qqq-edge-universal/internal/marketdata"
 )
 
 const (
@@ -236,6 +236,8 @@ type qqqTapeEngine struct {
 
 	lastMsg       qqqTapeMsg
 	lastBroadcast time.Time
+	lastTradable  bool
+	lastTradeDir  int
 }
 
 func newQQQTapeEngine(h *hub, et *time.Location, leaders []qqqHolding) *qqqTapeEngine {
@@ -322,6 +324,8 @@ func (e *qqqTapeEngine) Reset() {
 	}
 	e.lastBroadcast = time.Time{}
 	e.lastMsg = neutralQQQTapeMsg(time.Now().In(e.et))
+	e.lastTradable = false
+	e.lastTradeDir = 0
 }
 
 func neutralQQQTapeMsg(at time.Time) qqqTapeMsg {
@@ -336,7 +340,7 @@ func neutralQQQTapeMsg(at time.Time) qqqTapeMsg {
 	}
 }
 
-func (e *qqqTapeEngine) OnQuote(q poly.Quote) {
+func (e *qqqTapeEngine) OnQuote(q md.Quote) {
 	sym := strings.ToUpper(strings.TrimSpace(q.Sym))
 	if sym == "" {
 		return
@@ -378,7 +382,7 @@ func (e *qqqTapeEngine) OnQuote(q poly.Quote) {
 	}
 }
 
-func (e *qqqTapeEngine) OnTrade(t poly.Trade) {
+func (e *qqqTapeEngine) OnTrade(t md.Trade) {
 	sym := strings.ToUpper(strings.TrimSpace(t.Sym))
 	if sym == "" {
 		return
@@ -462,6 +466,7 @@ func (e *qqqTapeEngine) maybeBroadcastLocked(nowRecv time.Time) {
 	prev := e.lastMsg
 	msg := e.snapshotLocked(nowRecv)
 	e.lastMsg = msg
+	e.maybeEmitTradableAlertLocked(msg)
 
 	if !e.lastBroadcast.IsZero() &&
 		nowRecv.Sub(e.lastBroadcast) < qqqTapeBroadcastMinGap &&
@@ -473,6 +478,13 @@ func (e *qqqTapeEngine) maybeBroadcastLocked(nowRecv time.Time) {
 	e.lastBroadcast = nowRecv
 	if e.h != nil {
 		e.h.broadcast(msg)
+	}
+}
+
+func (e *qqqTapeEngine) maybeEmitTradableAlertLocked(msg qqqTapeMsg) {
+	e.lastTradable = msg.Tradable
+	if !msg.Tradable {
+		e.lastTradeDir = 0
 	}
 }
 

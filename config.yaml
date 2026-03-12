@@ -1,4 +1,6 @@
 server_port: 8089
+market_data:
+  provider: massive # databento or massive
 alert:
   # Optional legacy single sound (used as fallback if up/down not set)
   sound_file: "./web/sounds/hey.mp3"
@@ -7,16 +9,8 @@ alert:
   up_sound_file: "./web/sounds/alert_up.mp3"
   down_sound_file: "./web/sounds/alert_down.mp3"
 
-  scalp_sound_file: "./web/sounds/scalp.mp3"  # optional; already supported
-
   enable_sound: true
   cooldown_seconds: 10
-rvol:
-  default_threshold: 2.0
-  lookback_days: 14
-  bucket_size: 1m
-  default_method: "B"
-  baseline_mode: "single"
 timezone: "America/New_York"
 logging:
   level: info

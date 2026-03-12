@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"net/http"
@@ -13,27 +14,42 @@ import (
 	"testing"
 	"time"
 
-	poly "qqq-edge/internal/polygon"
-	rvolpkg "qqq-edge/internal/rvol"
+	"qqq-edge-universal/internal/marketdata"
 )
+
+type stubHistoricalProvider struct {
+	barsBySymbol map[string][]marketdata.Ohlcv1mBar
+}
+
+func (s *stubHistoricalProvider) Name() string {
+	return "stub"
+}
+
+func (s *stubHistoricalProvider) RangeOhlcv1m(_ context.Context, symbol string, start, end time.Time) ([]marketdata.Ohlcv1mBar, error) {
+	bars := append([]marketdata.Ohlcv1mBar(nil), s.barsBySymbol[symbol]...)
+	out := make([]marketdata.Ohlcv1mBar, 0, len(bars))
+	for _, bar := range bars {
+		if bar.Start.Before(start) || !bar.Start.Before(end) {
+			continue
+		}
+		out = append(out, bar)
+	}
+	return out, nil
+}
 
 func TestServeStaticSoundEndpointsServeConfiguredFiles(t *testing.T) {
 	webDir := t.TempDir()
 	mustWriteFile(t, filepath.Join(webDir, "index.html"), []byte("ok"))
-	mustWriteFile(t, filepath.Join(webDir, "news.html"), []byte("ok"))
 
 	up := []byte("ID3-up-sound")
 	down := []byte("ID3-down-sound")
-	scalp := []byte("ID3-scalp-sound")
 	upPath := filepath.Join(webDir, "up.mp3")
 	downPath := filepath.Join(webDir, "down.mp3")
-	scalpPath := filepath.Join(webDir, "scalp.mp3")
 	mustWriteFile(t, upPath, up)
 	mustWriteFile(t, downPath, down)
-	mustWriteFile(t, scalpPath, scalp)
 
 	mux := http.NewServeMux()
-	serveStatic(mux, webDir, upPath, downPath, scalpPath)
+	serveStatic(mux, webDir, upPath, downPath)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -44,7 +60,6 @@ func TestServeStaticSoundEndpointsServeConfiguredFiles(t *testing.T) {
 		{path: "/alert.mp3", want: up},
 		{path: "/alert-up.mp3", want: up},
 		{path: "/alert-down.mp3", want: down},
-		{path: "/scalp.mp3", want: scalp},
 	}
 	for _, tc := range tests {
 		t.Run(tc.path, func(t *testing.T) {
@@ -78,17 +93,16 @@ func TestServeStaticSoundEndpointsServeConfiguredFiles(t *testing.T) {
 func TestServeStaticSoundFallbackIsStableWAV(t *testing.T) {
 	webDir := t.TempDir()
 	mustWriteFile(t, filepath.Join(webDir, "index.html"), []byte("ok"))
-	mustWriteFile(t, filepath.Join(webDir, "news.html"), []byte("ok"))
 
 	cachedBeepWAV = nil
 	want := synthBeepWAV(400, 880.0, 44100)
 
 	mux := http.NewServeMux()
-	serveStatic(mux, webDir, "", "", "")
+	serveStatic(mux, webDir, "", "")
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	tests := []string{"/alert.mp3", "/alert-up.mp3", "/alert-down.mp3", "/scalp.mp3"}
+	tests := []string{"/alert.mp3", "/alert-up.mp3", "/alert-down.mp3"}
 	for _, path := range tests {
 		t.Run(path, func(t *testing.T) {
 			resp, err := srv.Client().Get(srv.URL + path)
@@ -165,7 +179,7 @@ func TestOdEngineTradeAlertsOnlyOnTrueBreakouts(t *testing.T) {
 	end := start.Add(6 * time.Hour)
 
 	h := newHub(50)
-	eng := newOdEngine(h, et, start, end, start, "hod", "lod", true)
+	eng := newOdEngine(h, et, start, end, start, "hod", "lod", alertSourceTrades, true)
 	eng.setAllowed([]string{"ABC"})
 	eng.upsertSymbol("ABC", "ABC Co", []string{"watchlist"})
 
@@ -178,7 +192,7 @@ func TestOdEngineTradeAlertsOnlyOnTrueBreakouts(t *testing.T) {
 	eng.trade("ABC", 8.80, start.Add(7*time.Second))  // new LOD alert
 	eng.trade("ABC", 12.00, start.Add(8*time.Second)) // new HOD alert
 
-	alerts, _ := h.getHistory()
+	alerts := h.getHistory()
 	if len(alerts) != 4 {
 		t.Fatalf("alerts len = %d, want 4", len(alerts))
 	}
@@ -196,7 +210,7 @@ func TestOdEngineSeedHiLoRequiresTrueBreakout(t *testing.T) {
 	end := start.Add(6 * time.Hour)
 
 	h := newHub(50)
-	eng := newOdEngine(h, et, start, end, start, "hod", "lod", true)
+	eng := newOdEngine(h, et, start, end, start, "hod", "lod", alertSourceTrades, true)
 	eng.setAllowed([]string{"ABC"})
 	eng.upsertSymbol("ABC", "ABC Co", []string{"watchlist"})
 	eng.seedHiLo("ABC", "ABC Co", []string{"watchlist"}, 9.0, 11.0)
@@ -206,7 +220,7 @@ func TestOdEngineSeedHiLoRequiresTrueBreakout(t *testing.T) {
 	eng.trade("ABC", 11.01, start.Add(3*time.Second)) // breakout high
 	eng.trade("ABC", 8.99, start.Add(4*time.Second))  // breakout low
 
-	alerts, _ := h.getHistory()
+	alerts := h.getHistory()
 	if len(alerts) != 2 {
 		t.Fatalf("alerts len = %d, want 2", len(alerts))
 	}
@@ -215,23 +229,102 @@ func TestOdEngineSeedHiLoRequiresTrueBreakout(t *testing.T) {
 	}
 }
 
-func TestNormalizeLevelsModeAndClockHelpers(t *testing.T) {
-	levelTests := []struct {
-		in   string
-		want string
-	}{
-		{in: "local", want: "local"},
-		{in: " LoCaL ", want: "local"},
-		{in: "session", want: "session"},
-		{in: "", want: "session"},
-		{in: "anything-else", want: "session"},
-	}
-	for _, tc := range levelTests {
-		if got := normalizeLevelsMode(tc.in); got != tc.want {
-			t.Fatalf("normalizeLevelsMode(%q) = %q, want %q", tc.in, got, tc.want)
-		}
+func TestSeedBreakoutHiLoWarmsProviderAgnosticLocalState(t *testing.T) {
+	et := mustET("America/New_York")
+	anchor := time.Date(2026, time.March, 2, 9, 30, 0, 0, et)
+	nowET := anchor.Add(3 * time.Minute)
+	endET := anchor.Add(6 * time.Hour)
+
+	h := newHub(50)
+	eng := newOdEngine(h, et, anchor, endET, nowET, "lhigh", "llow", alertSourceTrades, true)
+	eng.setAllowed([]string{"ABC"})
+	eng.upsertSymbol("ABC", "ABC Co", []string{"watchlist"})
+
+	historical := &stubHistoricalProvider{
+		barsBySymbol: map[string][]marketdata.Ohlcv1mBar{
+			"ABC": {
+				{Symbol: "ABC", Start: anchor.UTC(), End: anchor.Add(time.Minute).UTC(), Open: 10.00, High: 10.40, Low: 9.80, Close: 10.20},
+				{Symbol: "ABC", Start: anchor.Add(time.Minute).UTC(), End: anchor.Add(2 * time.Minute).UTC(), Open: 10.20, High: 10.55, Low: 9.90, Close: 10.10},
+				{Symbol: "ABC", Start: anchor.Add(2 * time.Minute).UTC(), End: anchor.Add(3 * time.Minute).UTC(), Open: 10.10, High: 10.30, Low: 9.95, Close: 10.00},
+			},
+		},
 	}
 
+	seedBreakoutHiLo(context.Background(), historical, et, []string{"ABC"}, map[string]string{"ABC": "ABC Co"}, map[string][]string{"ABC": []string{"watchlist"}}, anchor, nowET, endET, eng)
+
+	eng.trade("ABC", 10.55, nowET.Add(1*time.Second))
+	eng.trade("ABC", 9.80, nowET.Add(2*time.Second))
+	eng.trade("ABC", 10.56, nowET.Add(3*time.Second))
+	eng.trade("ABC", 9.79, nowET.Add(4*time.Second))
+
+	alerts := h.getHistory()
+	if len(alerts) != 2 {
+		t.Fatalf("alerts len = %d, want 2", len(alerts))
+	}
+	if alerts[0].Kind != "lhigh" || alerts[0].Price != 10.56 {
+		t.Fatalf("first alert = %#v, want lhigh at 10.56", alerts[0])
+	}
+	if alerts[1].Kind != "llow" || alerts[1].Price != 9.79 {
+		t.Fatalf("second alert = %#v, want llow at 9.79", alerts[1])
+	}
+}
+
+func TestOdEngineQuoteAlertsUseAskForHighAndBidForLow(t *testing.T) {
+	et := mustET("America/New_York")
+	start := time.Date(2026, time.March, 2, 9, 30, 0, 0, et)
+	end := start.Add(6 * time.Hour)
+
+	h := newHub(50)
+	eng := newOdEngine(h, et, start, end, start, "lhigh", "llow", alertSourceNBBO, true)
+	eng.setAllowed([]string{"ABC"})
+	eng.upsertSymbol("ABC", "ABC Co", []string{"watchlist"})
+
+	eng.quote("ABC", 9.95, 10.05, start.Add(1*time.Second))
+	eng.quote("ABC", 9.96, 10.05, start.Add(2*time.Second))
+	eng.quote("ABC", 9.96, 10.06, start.Add(3*time.Second))
+	eng.quote("ABC", 9.94, 10.06, start.Add(4*time.Second))
+
+	alerts := h.getHistory()
+	if len(alerts) != 2 {
+		t.Fatalf("alerts len = %d, want 2", len(alerts))
+	}
+	if alerts[0].Kind != "lhigh" || alerts[0].Price != 10.06 {
+		t.Fatalf("first alert = %#v, want lhigh at ask 10.06", alerts[0])
+	}
+	if alerts[1].Kind != "llow" || alerts[1].Price != 9.94 {
+		t.Fatalf("second alert = %#v, want llow at bid 9.94", alerts[1])
+	}
+}
+
+func TestOdEngineCanSwitchBetweenTradesAndNBBOWithoutReset(t *testing.T) {
+	et := mustET("America/New_York")
+	start := time.Date(2026, time.March, 2, 9, 30, 0, 0, et)
+	end := start.Add(6 * time.Hour)
+
+	h := newHub(50)
+	eng := newOdEngine(h, et, start, end, start, "lhigh", "llow", alertSourceTrades, true)
+	eng.setAllowed([]string{"ABC"})
+	eng.upsertSymbol("ABC", "ABC Co", []string{"watchlist"})
+
+	eng.trade("ABC", 10.00, start.Add(1*time.Second))       // initialize trades
+	eng.quote("ABC", 9.95, 10.05, start.Add(2*time.Second)) // initialize nbbo
+	eng.trade("ABC", 10.10, start.Add(3*time.Second))       // trades alert
+	eng.quote("ABC", 9.96, 10.06, start.Add(4*time.Second)) // no alert while trades active
+	eng.setSource(alertSourceNBBO)
+	eng.quote("ABC", 9.96, 10.06, start.Add(5*time.Second)) // equal nbbo high, no reset
+	eng.quote("ABC", 9.97, 10.07, start.Add(6*time.Second)) // nbbo alert
+	eng.trade("ABC", 10.20, start.Add(7*time.Second))       // no alert while nbbo active
+
+	alerts := h.getHistory()
+	if len(alerts) != 2 {
+		t.Fatalf("alerts len = %d, want 2", len(alerts))
+	}
+	if alerts[0].Price != 10.10 || alerts[1].Price != 10.07 {
+		t.Fatalf("unexpected prices after source switch: %#v", alerts)
+	}
+}
+
+func TestNormalizeClockHelpers(t *testing.T) {
 	clockTests := []struct {
 		in     string
 		want   string
@@ -276,7 +369,7 @@ func TestOdEngineLocalModeAlertsAfterBoundaryWithLocalKinds(t *testing.T) {
 	alertsAfter := time.Date(2026, time.March, 2, 10, 30, 0, 0, et)
 
 	h := newHub(50)
-	eng := newOdEngine(h, et, start, end, alertsAfter, "lhigh", "llow", true)
+	eng := newOdEngine(h, et, start, end, alertsAfter, "lhigh", "llow", alertSourceTrades, true)
 	eng.setAllowed([]string{"ABC"})
 	eng.upsertSymbol("ABC", "ABC Co", []string{"watchlist"})
 
@@ -291,7 +384,7 @@ func TestOdEngineLocalModeAlertsAfterBoundaryWithLocalKinds(t *testing.T) {
 	eng.trade("ABC", 10.71, start.Add(32*time.Minute)) // local high alert
 	eng.trade("ABC", 9.79, start.Add(33*time.Minute))  // local low alert
 
-	alerts, _ := h.getHistory()
+	alerts := h.getHistory()
 	if len(alerts) != 2 {
 		t.Fatalf("alerts len = %d, want 2", len(alerts))
 	}
@@ -309,7 +402,7 @@ func TestOdEngineLocalModeHonorsEnabledToggle(t *testing.T) {
 	end := start.Add(6 * time.Hour)
 
 	h := newHub(50)
-	eng := newOdEngine(h, et, start, end, start, "lhigh", "llow", false)
+	eng := newOdEngine(h, et, start, end, start, "lhigh", "llow", alertSourceTrades, false)
 	eng.setAllowed([]string{"ABC"})
 	eng.upsertSymbol("ABC", "ABC Co", []string{"watchlist"})
 
@@ -320,72 +413,12 @@ func TestOdEngineLocalModeHonorsEnabledToggle(t *testing.T) {
 	eng.trade("ABC", 12.00, start.Add(3*time.Second)) // initialize only once enabled
 	eng.trade("ABC", 12.10, start.Add(4*time.Second)) // breakout -> alert
 
-	alerts, _ := h.getHistory()
+	alerts := h.getHistory()
 	if len(alerts) != 1 {
 		t.Fatalf("alerts len = %d, want 1", len(alerts))
 	}
 	if alerts[0].Kind != "lhigh" {
 		t.Fatalf("alert kind = %q, want lhigh", alerts[0].Kind)
-	}
-}
-
-func TestRvolManagerOnAMRespectsCooldown(t *testing.T) {
-	tmp := t.TempDir()
-	oldWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(tmp); err != nil {
-		t.Fatalf("chdir temp: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
-
-	et := mustET("America/New_York")
-	var cfg AppConfig
-	cfg.Alert.CooldownSeconds = 10
-	cfg.Rvol.DefaultThreshold = 2.0
-	cfg.Rvol.DefaultMethod = "A"
-	cfg.Rvol.BaselineMode = "single"
-
-	h := newHub(50)
-	m := newRvolManager(cfg, et, "", h)
-
-	t1 := time.Date(2026, time.March, 2, 9, 31, 0, 0, et)
-	t2 := t1.Add(1 * time.Minute)
-	t3 := t2.Add(1 * time.Minute)
-	b1 := rvolpkg.MinuteIndexFrom0400ET(t1, et)
-	b2 := rvolpkg.MinuteIndexFrom0400ET(t2, et)
-	b3 := rvolpkg.MinuteIndexFrom0400ET(t3, et)
-
-	m.mu.Lock()
-	m.active = true
-	m.session = SessionRTH
-	m.baselines["ABC"] = rvolpkg.Baselines{
-		b1: {100},
-		b2: {100},
-		b3: {100},
-	}
-	m.lastMinute["ABC"] = t1.Add(-1 * time.Minute)
-	m.lastClose["ABC"] = 9.50
-	m.mu.Unlock()
-
-	m.OnAM("ABC", mkAM("ABC", t1, 250, 10.00), 10.00) // alerts
-	m.OnAM("ABC", mkAM("ABC", t2, 260, 10.20), 10.20) // blocked by cooldown
-
-	m.mu.Lock()
-	m.lastAlertAt["ABC"] = time.Now().Add(-11 * time.Second) // expire cooldown
-	m.mu.Unlock()
-	m.OnAM("ABC", mkAM("ABC", t3, 270, 10.40), 10.40) // alerts again
-
-	_, rvols := h.getHistory()
-	if len(rvols) != 2 {
-		t.Fatalf("rvol alerts len = %d, want 2", len(rvols))
-	}
-	if rvols[0].Sym != "ABC" || rvols[1].Sym != "ABC" {
-		t.Fatalf("unexpected symbols: %#v", rvols)
-	}
-	if rvols[0].RVOL < 2.0 || rvols[1].RVOL < 2.0 {
-		t.Fatalf("expected RVOL >= threshold, got %#v", rvols)
 	}
 }
 
@@ -398,13 +431,11 @@ func TestWebSoundRoutingAndLoudnessContract(t *testing.T) {
 
 	requiredJS := []string{
 		"let soundEnabled = true;",
-		"function addIncomingAlert(a){",
-		`a.kind === "lod" || a.kind === "llow"`,
-		"playScalpSound();",
+		"function addIncomingAlert(a) {",
+		`if (kind === "llow") {`,
 		"playDownSound();",
 		"playUpSound();",
-		"function addRvolAlert(msg) {",
-		"msg.delta < 0",
+		"function maybePlayTapeSound(msg) {",
 	}
 	for _, frag := range requiredJS {
 		if !strings.Contains(src, frag) {
@@ -439,15 +470,117 @@ func TestWebSoundRoutingAndLoudnessContract(t *testing.T) {
 	}
 }
 
-func mkAM(sym string, endET time.Time, vol float64, close float64) poly.AggregateMinute {
-	startET := endET.Add(-1 * time.Minute)
-	return poly.AggregateMinute{
-		Ev:  "AM",
-		Sym: sym,
-		V:   vol,
-		C:   close,
-		S:   startET.UnixMilli(),
-		E:   endET.UnixMilli(),
+func TestStartStreamHonorsSelectedLocalAnchorContract(t *testing.T) {
+	js, err := os.ReadFile(filepath.Join("web", "app.js"))
+	if err != nil {
+		t.Fatalf("read web/app.js: %v", err)
+	}
+	src := string(js)
+	requiredJS := []string{
+		"const localClock = currentLocalTimeInput() || currentETClockHHMM();",
+		"local_time: localClock,",
+	}
+	for _, frag := range requiredJS {
+		if !strings.Contains(src, frag) {
+			t.Fatalf("web/app.js missing local-anchor start fragment: %q", frag)
+		}
+	}
+	forbiddenJS := []string{
+		"local_time: nowClock,",
+		"localTimeInput.value = nowClock;",
+	}
+	for _, frag := range forbiddenJS {
+		if strings.Contains(src, frag) {
+			t.Fatalf("web/app.js contains stale start-anchor fragment: %q", frag)
+		}
+	}
+
+	goSrcBytes, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	goSrc := string(goSrcBytes)
+	requiredGo := []string{
+		`if strings.TrimSpace(req.LocalTime) != "" {`,
+		`} else if strings.ToLower(req.Mode) == "start" {`,
+	}
+	for _, frag := range requiredGo {
+		if !strings.Contains(goSrc, frag) {
+			t.Fatalf("main.go missing local-anchor fragment: %q", frag)
+		}
+	}
+}
+
+func TestTapePaceTracksBreadthChangingLocalAlertsContract(t *testing.T) {
+	js, err := os.ReadFile(filepath.Join("web", "app.js"))
+	if err != nil {
+		t.Fatalf("read web/app.js: %v", err)
+	}
+	src := string(js)
+	requiredJS := []string{
+		"function applyBreakoutTransition(a, dirsBySymbol) {",
+		"const paceTransition = applyBreakoutTransition(a, tapePaceDirsBySymbol);",
+		`tapePaceEventsMs.push(alertTimeMs(a));`,
+		`Pace of tape: ${count} local high/low alerts changed breakout breadth in the last ${windowSeconds} seconds`,
+	}
+	for _, frag := range requiredJS {
+		if !strings.Contains(src, frag) {
+			t.Fatalf("web/app.js missing tape-pace fragment: %q", frag)
+		}
+	}
+	forbiddenJS := []string{
+		`tapePaceEventsMs.push(Number(a.ts_unix || Date.now()));`,
+		`Pace of tape: ${count} local high/low alerts in the last ${windowSeconds} seconds`,
+	}
+	for _, frag := range forbiddenJS {
+		if strings.Contains(src, frag) {
+			t.Fatalf("web/app.js contains stale tape-pace fragment: %q", frag)
+		}
+	}
+
+	html, err := os.ReadFile(filepath.Join("web", "index.html"))
+	if err != nil {
+		t.Fatalf("read web/index.html: %v", err)
+	}
+	index := string(html)
+	if !strings.Contains(index, `Counts local high/low alerts that change breakout breadth in the rolling pace window`) {
+		t.Fatal("web/index.html missing updated tape pace tooltip")
+	}
+}
+
+func TestQQQTapeAlertsDoNotRouteSyntheticSoundsContract(t *testing.T) {
+	js, err := os.ReadFile(filepath.Join("web", "app.js"))
+	if err != nil {
+		t.Fatalf("read web/app.js: %v", err)
+	}
+	src := string(js)
+	forbiddenJS := []string{
+		"function playTapeAlertSound(kind) {",
+		`if (a.kind === "qqq_buy" || a.kind === "qqq_sell") {`,
+		`if (kind === "qqq_buy") return "QQQ TAPE BUY";`,
+		`if (kind === "qqq_sell") return "QQQ TAPE SELL";`,
+	}
+	for _, frag := range forbiddenJS {
+		if strings.Contains(src, frag) {
+			t.Fatalf("web/app.js contains stale qqq tape alert fragment: %q", frag)
+		}
+	}
+}
+
+func TestEssentialsModeKeepsTopbarAndControlsVisibleContract(t *testing.T) {
+	css, err := os.ReadFile(filepath.Join("web", "styles.css"))
+	if err != nil {
+		t.Fatalf("read web/styles.css: %v", err)
+	}
+	src := string(css)
+	forbiddenCSS := []string{
+		"body.essentials .topbar{\n  display:none;",
+		"body.essentials .controls{\n  display:none !important;",
+	}
+	for _, frag := range forbiddenCSS {
+		if strings.Contains(src, frag) {
+			t.Fatalf("web/styles.css contains stale essentials visibility fragment: %q", frag)
+		}
 	}
 }
 

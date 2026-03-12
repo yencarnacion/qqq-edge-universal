@@ -1,28 +1,24 @@
-# qqq-edge
+# qqq-edge-universal
 
-`qqq-edge` is a real-time intraday monitoring tool for fast-moving watchlists. It streams Polygon trades/quotes, computes breakout + RVOL + scalp + QQQ tape signals, and serves a low-latency web UI with optional audio alerts.
+`qqq-edge-universal` is a real-time intraday monitoring tool for fast-moving watchlists. It consumes provider-backed trades/quotes through a provider-agnostic Go market-data API, computes local breakout breadth plus QQQ tape signals, and serves a low-latency web UI with optional audio alerts for breakout alerts.
 
 ## What it does
 
-- Streams watchlist symbols from Polygon websocket data.
+- Streams watchlist symbols from the configured market-data provider.
 - Detects and publishes:
-  - Session `HOD` / `LOD` alerts
   - Local `High` / `Low` alerts from a user-selected anchor time
-  - RVOL surge alerts (mean/median + single/cumulative baselines)
-  - Scalp signals (Rubberband, Backside, Fashionably late)
 - Computes a QQQ tape model from:
   - Leader return composite (`1s`, `3s`, `8s`) using ETF weights
   - Leader signed notional flow imbalance
   - QQQ confirmation flow (trade flow + quote imbalance + microprice edge)
   - Spread-aware tradability gating and freshness penalties
-- Shows intraday cards with mini charts, news, SEC filings, and source tags in multi-watchlist mode.
+- Shows intraday alert cards and a focused QQQ tape + breakout breadth UI.
 
 ## Requirements
 
-- Go `1.21+`
-- `POLYGON_API_KEY` (required)
-- `FMP_API_KEY` (optional; profile/news enrichment)
-- `SEC_API_KEY` (optional; filings)
+- Go `1.23.3+`
+- `config.yaml` with `market_data.provider` set to `databento` or `massive`
+- Provider credentials for the selected backend
 
 ## Quick Start
 
@@ -35,12 +31,37 @@ cp env.example .env
 2. Fill `.env`:
 
 ```env
-POLYGON_API_KEY=...
-FMP_API_KEY=...   # optional
-SEC_API_KEY=...   # optional
+DATABENTO_API_KEY=...
+MASSIVE_API_KEY=...
 ```
 
+Current built-in provider:
+
+- `databento`
+  - live trades + quotes + native live 1-minute aggregates
+  - historical 1-minute OHLCV
+- `massive`
+  - live trades + quotes + minute aggregates
+  - historical 1-minute OHLCV
+
 3. Review `config.yaml`, `watchlist.yaml`, and (recommended) `qqq-etf-holdings.csv`.
+
+Pick the provider in `config.yaml`:
+
+```yaml
+market_data:
+  provider: massive
+```
+
+Switch to Databento by changing only the provider name:
+
+```yaml
+market_data:
+  provider: databento
+```
+
+`MARKET_DATA_PROVIDER` is still accepted as a fallback when `config.yaml` leaves `market_data.provider` empty, but the intended switch point is `config.yaml`.
+
 4. Run:
 
 ```bash
@@ -114,10 +135,9 @@ For usage guidance, see `qqq-tape-use.md`.
   - `Exec Edge` is the execution-facing edge after tape confirmation.
   - State badge: `Tradable`, `Watch`, or `No Trade`.
   - `Coverage` shows tracked ETF weight represented in the model.
+  - The tape is informational; it does not emit separate QQQ buy/sell alert cards or audio.
 - **Breakout Breadth panel**
   - Net upside vs downside breakout state across the watchlist.
-- **RVOL table**
-  - Minute-level volume expansion vs baseline.
 - **Live Alerts**
   - Time-ordered actionable alerts with optional directional sound.
 
@@ -138,7 +158,7 @@ For usage guidance, see `qqq-tape-use.md`.
 
 - `config.yaml`
   - `server_port`: UI/API port
-  - `rvol.lookback_days`: baseline history depth
+  - `market_data.provider`: `databento` or `massive`
   - `ui.chart_opener_base_url`: ticker click target base URL
   - `ui.auto_now_seconds`: Auto button interval/countdown in seconds
   - `ui.pace_of_tape_window_seconds`: rolling breakout-alert window for the tape pace gauge
@@ -159,5 +179,6 @@ go test ./... -v
 
 ## Notes
 
-- `POLYGON_API_KEY` is required; app exits without it.
-- FMP/SEC keys are optional; related UI sections degrade gracefully when missing.
+- `config.yaml` now selects the backend implementation used by the app's internal market-data API.
+- `DATABENTO_API_KEY` is required when `market_data.provider: databento`.
+- `MASSIVE_API_KEY` is required when `market_data.provider: massive`.
