@@ -54,6 +54,7 @@ const CURRENT_SOUNDS_STORAGE_KEY = "qqq-edge-universal.current_sounds";
 const SYNTH_SOUNDS_STORAGE_KEY = "qqq-edge-universal.synth_sounds";
 const HISTORY_LIMIT = 200;
 const LIVE_LIMIT = 30;
+const BREAKOUT_SOUND_GAP_MS = 110;
 
 let ws = null;
 let streamRunning = false;
@@ -77,6 +78,8 @@ let tickDirsBySymbol = new Map();
 let tapePaceDirsBySymbol = new Map();
 let tapePaceEventsMs = [];
 let breakoutBreadthResetAtMs = 0;
+let breakoutSoundQueue = [];
+let breakoutSoundTimerId = 0;
 
 function setStatus(text, ok = false) {
   statusPill.textContent = text;
@@ -216,6 +219,10 @@ function normalizeAlertSource(value) {
   return String(value || "").toLowerCase() === "nbbo" ? "nbbo" : "trades";
 }
 
+function alertMatchesCurrentSource(a) {
+  return normalizeAlertSource(a?.source) === currentAlertSource;
+}
+
 function applyAlertSourceUi(source) {
   currentAlertSource = normalizeAlertSource(source);
   alertSourceButtons.forEach((btn) => {
@@ -223,6 +230,7 @@ function applyAlertSourceUi(source) {
     btn.classList.toggle("isActive", active);
     btn.setAttribute("aria-pressed", active ? "true" : "false");
   });
+  renderAll();
 }
 
 function restartAudio(el) {
@@ -237,14 +245,30 @@ function restartAudio(el) {
   } catch {}
 }
 
+function playCurrentSoundElement(el) {
+  if (!canPlayCurrentSounds() || !el) return;
+  try {
+    const audio = el.cloneNode(true);
+    audio.currentTime = 0;
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => {
+        restartAudio(el);
+      });
+    }
+  } catch {
+    restartAudio(el);
+  }
+}
+
 function playUpSound() {
   if (!canPlayCurrentSounds() || !fallbackAudioUp) return;
-  restartAudio(fallbackAudioUp);
+  playCurrentSoundElement(fallbackAudioUp);
 }
 
 function playDownSound() {
   if (!canPlayCurrentSounds() || !fallbackAudioDown) return;
-  restartAudio(fallbackAudioDown);
+  playCurrentSoundElement(fallbackAudioDown);
 }
 
 function playCurrentAlertSound(kind) {
@@ -263,6 +287,10 @@ function alertVisible(kind) {
   if (kind === "lhigh") return !!chkLocalHigh?.checked;
   if (kind === "llow") return !!chkLocalLow?.checked;
   return false;
+}
+
+function alertShown(a) {
+  return !!a && alertMatchesCurrentSource(a) && alertVisible(a.kind);
 }
 
 function alertLabel(kind) {
@@ -294,7 +322,7 @@ function buildAlertCard(a, live = false) {
 }
 
 function renderAll() {
-  const visible = allAlerts.filter((a) => alertVisible(a.kind));
+  const visible = allAlerts.filter((a) => alertShown(a));
   if (feed) {
     feed.innerHTML = visible.length === 0
       ? `<div class="panel muted">No local alerts yet.</div>`
@@ -354,18 +382,48 @@ function alertTimeMs(a) {
 }
 
 function breakoutBreadthTransitionForSound(a) {
-  if (!alertVisible(a?.kind)) return null;
+  if (!alertShown(a)) return null;
   if (alertTimeMs(a) < breakoutBreadthResetAtMs) return null;
   return applyBreakoutTransition(a, tickDirsBySymbol);
 }
 
-function playBreakoutBreadthChangeSound(transition) {
-  if (!transition) return;
-  if (transition.delta < 0) {
-    playDownSound();
+function clearBreakoutSoundQueue() {
+  breakoutSoundQueue = [];
+  if (breakoutSoundTimerId) {
+    window.clearTimeout(breakoutSoundTimerId);
+    breakoutSoundTimerId = 0;
+  }
+}
+
+function drainBreakoutSoundQueue() {
+  breakoutSoundTimerId = 0;
+  if (!canPlayCurrentSounds()) {
+    clearBreakoutSoundQueue();
     return;
   }
-  playUpSound();
+  const dir = breakoutSoundQueue.shift();
+  if (!dir) return;
+  if (dir === "down") {
+    playDownSound();
+  } else {
+    playUpSound();
+  }
+  if (breakoutSoundQueue.length > 0) {
+    breakoutSoundTimerId = window.setTimeout(drainBreakoutSoundQueue, BREAKOUT_SOUND_GAP_MS);
+  }
+}
+
+function playBreakoutBreadthChangeSound(transition) {
+  const delta = Number(transition?.delta || 0);
+  if (!Number.isFinite(delta) || delta === 0 || !canPlayCurrentSounds()) return;
+  const dir = delta < 0 ? "down" : "up";
+  for (let i = 0; i < Math.abs(delta); i += 1) {
+    breakoutSoundQueue.push(dir);
+  }
+  if (breakoutSoundTimerId) {
+    return;
+  }
+  drainBreakoutSoundQueue();
 }
 
 function updateBreakoutBreadthReadout(total) {
@@ -393,7 +451,7 @@ function rebuildBreadthAndPace() {
   const ordered = [...allAlerts].reverse();
   let total = 0;
   for (const a of ordered) {
-    if (!alertVisible(a.kind)) continue;
+    if (!alertShown(a)) continue;
     const tsMs = alertTimeMs(a);
     if (tsMs >= breakoutBreadthResetAtMs) {
       const tickTransition = applyBreakoutTransition(a, tickDirsBySymbol);
@@ -823,6 +881,7 @@ async function clearAlerts() {
 function wireEvents() {
   soundBtn.addEventListener("click", async () => {
     soundEnabled = !soundEnabled;
+    if (!soundEnabled) clearBreakoutSoundQueue();
     updateSoundUi();
     if (soundEnabled && fallbackAudioUp) {
       try {
@@ -839,6 +898,7 @@ function wireEvents() {
   if (chkCurrentSounds) {
     chkCurrentSounds.addEventListener("change", () => {
       currentAlertSoundsEnabled = !!chkCurrentSounds.checked;
+      if (!currentAlertSoundsEnabled) clearBreakoutSoundQueue();
       persistSoundChannelPrefs();
     });
   }
@@ -851,6 +911,7 @@ function wireEvents() {
   if (silentMode) {
     silentMode.addEventListener("change", () => {
       silent = !!silentMode.checked;
+      if (silent) clearBreakoutSoundQueue();
       updateSoundUi();
     });
   }

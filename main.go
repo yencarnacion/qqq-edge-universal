@@ -327,6 +327,7 @@ type statusMsg struct {
 type alertMsg struct {
 	Type    string   `json:"type"`
 	Kind    string   `json:"kind"`
+	Source  string   `json:"source,omitempty"`
 	Time    string   `json:"time"`
 	Sym     string   `json:"sym"`
 	Name    string   `json:"name,omitempty"`
@@ -753,6 +754,7 @@ func (e *odEngine) broadcastAlertLocked(st *instrumentState, sym, kind string, p
 	msg := alertMsg{
 		Type:    "alert",
 		Kind:    kind,
+		Source:  e.source.String(),
 		Time:    etClock(tsET),
 		Sym:     sym,
 		Name:    st.Name,
